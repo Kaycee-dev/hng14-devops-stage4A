@@ -178,7 +178,7 @@ and rebuild the image to match the new tag.
 ```
 manifest.yaml                       single source of truth (hand-edit)
 swiftdeploy                         CLI (Bash + embedded Python)
-Dockerfile                          builds swift-deploy-1-node:latest
+Dockerfile                          builds swiftdeploy-stage4a-app:1.0.0
 .dockerignore
 .gitattributes                      enforces LF line endings on the script
 app/
