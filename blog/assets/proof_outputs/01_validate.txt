@@ -1,0 +1,8 @@
+$ ./swiftdeploy validate
+[PASS] manifest.yaml exists and is valid YAML
+[PASS] all required manifest fields are present and non-empty
+[PASS] docker image 'swiftdeploy-stage4a-app:1.0.0' is present locally
+[PASS] nginx port 18080 is free on the host
+[PASS] rendered nginx.conf passes 'nginx -t' inside nginx:latest
+
+validate: all 5 checks passed

@@ -1,0 +1,38 @@
+packet_id: SD4-CLI-001
+objective: Implement `swiftdeploy init` and `swiftdeploy validate`.
+scope_in:
+  - swiftdeploy
+  - manifest.yaml
+  - templates/**
+  - generated nginx.conf
+  - generated docker-compose.yml
+  - docs/stage4-control-plane/**
+scope_out:
+  - deploy
+  - promote
+  - teardown
+concepts_to_explain:
+  - idempotent rendering
+  - pre-flight validation
+  - non-zero exit behavior
+decisions_to_record:
+  - YAML parsing implementation
+  - Nginx syntax validation method
+implementation_steps:
+  - create manifest
+  - implement init
+  - implement validate
+  - test regeneration after deletion
+verification_commands:
+  - ./swiftdeploy init
+  - ./swiftdeploy validate
+evidence_to_capture:
+  - validate output
+  - generated config contents
+interview_questions:
+  - What happens if init runs twice?
+  - Why validate before deploy?
+done_when:
+  - init regenerates configs
+  - validate performs all five checks
+

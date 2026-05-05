@@ -1,0 +1,39 @@
+packet_id: SD4-PROOF-001
+objective: Produce final evidence, screenshots, and README walkthrough for Stage 4A submission.
+scope_in:
+  - README.md
+  - docs/stage4-control-plane/**
+  - screenshots or screenshot manifest
+scope_out:
+  - new feature implementation
+concepts_to_explain:
+  - evidence quality
+  - proof-surface consistency
+  - submission readiness
+decisions_to_record:
+  - final screenshot naming and Google Drive organization
+implementation_steps:
+  - run full command sequence
+  - capture required screenshots
+  - finish README
+  - reconcile QA checklist
+verification_commands:
+  - python scripts/control_plane_check.py
+  - ./swiftdeploy validate
+  - ./swiftdeploy deploy
+  - ./swiftdeploy promote canary
+  - ./swiftdeploy promote stable
+evidence_to_capture:
+  - validate output
+  - deploy output
+  - promote and health confirmation
+  - generated configs
+  - nginx access logs
+interview_questions:
+  - Which evidence proves idempotency?
+  - Which evidence proves traffic flows through Nginx?
+done_when:
+  - all required screenshots exist
+  - README is submission-ready
+  - QA checklist is complete
+

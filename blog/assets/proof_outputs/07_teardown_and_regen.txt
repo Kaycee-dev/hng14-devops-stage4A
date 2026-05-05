@@ -1,0 +1,35 @@
+$ ls nginx.conf docker-compose.yml    # before teardown
+docker-compose.yml
+nginx.conf
+
+$ ./swiftdeploy teardown --clean
+swiftdeploy teardown: docker compose down -v --remove-orphans
+ Container swiftdeploy-nginx Stopping 
+ Container swiftdeploy-nginx Stopped 
+ Container swiftdeploy-nginx Removing 
+ Container swiftdeploy-nginx Removed 
+ Container swiftdeploy-app Stopping 
+ Container swiftdeploy-app Stopped 
+ Container swiftdeploy-app Removing 
+ Container swiftdeploy-app Removed 
+ Volume swiftdeploy-logs Removing 
+ Network swiftdeploy-net Removing 
+ Volume swiftdeploy-logs Removed 
+ Network swiftdeploy-net Removed 
+swiftdeploy teardown --clean: removing generated configs
+  removed: nginx.conf, docker-compose.yml
+teardown: complete
+
+$ ls nginx.conf docker-compose.yml 2>&1    # after teardown --clean
+ls: cannot access 'nginx.conf': No such file or directory
+ls: cannot access 'docker-compose.yml': No such file or directory
+
+$ ./swiftdeploy init    # regenerate from manifest
+swiftdeploy init: rendering generated files from /c/Users/Hp/Documents/hng14/devops-stage4/manifest.yaml
+rendered nginx.conf       <- C:/Users/Hp/Documents/hng14/devops-stage4/templates/nginx.conf.tmpl
+rendered docker-compose.yml <- C:/Users/Hp/Documents/hng14/devops-stage4/templates/docker-compose.tmpl
+OK: nginx.conf and docker-compose.yml regenerated.
+
+$ sha256sum nginx.conf docker-compose.yml    # confirm regen is byte-identical
+8ceedb2e5c67a8887172a8bc14db977d0c47a783db33e5219e806a238b65c0f3 *nginx.conf
+f4e79d67075b95d0a576fd2a2abf680a3dfae9845d00965d57cbc3a4cdb2087d *docker-compose.yml

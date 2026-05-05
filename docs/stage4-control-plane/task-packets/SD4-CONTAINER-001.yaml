@@ -1,0 +1,38 @@
+packet_id: SD4-CONTAINER-001
+objective: Build a lightweight hardened container image for the API service.
+scope_in:
+  - Dockerfile
+  - app dependency files
+  - README.md
+  - docs/stage4-control-plane/**
+scope_out:
+  - CLI lifecycle commands
+  - generated Compose file
+concepts_to_explain:
+  - image size
+  - non-root execution
+  - Linux capabilities
+  - Docker layer caching
+decisions_to_record:
+  - base image choice
+  - healthcheck command availability
+implementation_steps:
+  - create Dockerfile
+  - create app dependency file
+  - build image
+  - measure image size
+verification_commands:
+  - docker build -t swift-deploy-1-node:latest .
+  - docker images swift-deploy-1-node:latest
+evidence_to_capture:
+  - image build output
+  - image size proof
+interview_questions:
+  - Why non-root?
+  - Why drop capabilities?
+  - Why this base image?
+done_when:
+  - image builds
+  - image is under 300 MB
+  - hardening is documented
+

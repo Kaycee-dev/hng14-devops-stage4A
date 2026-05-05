@@ -1,0 +1,32 @@
+packet_id: SD4-BLOG-001
+objective: Prepare the dev.to article and diagrams from verified implementation evidence.
+scope_in:
+  - blog/**
+  - docs/stage4-control-plane/09_blog_and_diagram_plan.md
+  - README.md
+scope_out:
+  - publishing through an API
+concepts_to_explain:
+  - evidence-backed technical writing
+  - diagram-driven architecture explanation
+  - avoiding unsupported claims
+decisions_to_record:
+  - final article title
+  - final diagram set
+implementation_steps:
+  - write article draft
+  - create diagrams
+  - link screenshots and evidence
+  - prepare manual dev.to publish checklist
+verification_commands:
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - final draft path
+  - exported diagram paths
+interview_questions:
+  - How does the article prove you understand the system?
+  - Which diagrams map to the real deployment?
+done_when:
+  - article is ready for manual dev.to publishing
+  - claims are backed by final evidence
+

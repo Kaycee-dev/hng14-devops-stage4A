@@ -1,0 +1,21 @@
+# Single source of truth for the SwiftDeploy stack.
+# `swiftdeploy init` regenerates nginx.conf and docker-compose.yml from this file.
+# Do not hand-edit the generated files; edit this file and rerun `init`.
+
+services:
+  image: swiftdeploy-stage4a-app:1.0.0
+  port: 3000
+  mode: stable
+  version: "1.0.0"
+  restart_policy: unless-stopped
+  log_volume: swiftdeploy-logs
+
+nginx:
+  image: nginx:latest
+  port: 18080
+  proxy_timeout: 30
+  error_contact: ops@swiftdeploy.local
+
+network:
+  name: swiftdeploy-net
+  driver_type: bridge

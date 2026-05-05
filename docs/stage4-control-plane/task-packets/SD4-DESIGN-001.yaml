@@ -1,0 +1,39 @@
+packet_id: SD4-DESIGN-001
+objective: Finalize design decisions before any implementation file is created.
+scope_in:
+  - docs/stage4-control-plane/01_brief_traceability.md
+  - docs/stage4-control-plane/04_decisions_log.md
+  - docs/stage4-control-plane/08_interview_defense_bank.md
+  - config/runtime_status.json
+  - CURRENT_TASK
+scope_out:
+  - SwiftDeploy implementation files
+concepts_to_explain:
+  - manifest-driven config generation
+  - idempotency
+  - grader portability
+  - stable versus canary semantics
+decisions_to_record:
+  - API language and framework
+  - CLI language
+  - YAML parsing strategy
+  - template rendering strategy
+  - healthcheck dependency strategy
+implementation_steps:
+  - compare API and CLI options
+  - settle manifest extension fields
+  - settle template rendering policy
+  - define acceptance criteria for implementation packets
+verification_commands:
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - design gate evidence id
+interview_questions:
+  - Why did you choose this API stack?
+  - Why did you choose this CLI stack?
+  - How will init be idempotent?
+done_when:
+  - design decisions are recorded
+  - implementation_allowed can safely become true
+  - next packet is SD4-APP-001
+

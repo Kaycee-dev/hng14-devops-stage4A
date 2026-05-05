@@ -1,0 +1,32 @@
+packet_id: SD4-TEMPLATE-001
+objective: Create Nginx and Docker Compose templates that can be rendered from the manifest.
+scope_in:
+  - templates/**
+  - docs/stage4-control-plane/**
+  - README.md
+scope_out:
+  - generated nginx.conf
+  - generated docker-compose.yml
+concepts_to_explain:
+  - template versus generated artifact
+  - Docker internal DNS
+  - Nginx proxy boundary
+  - Compose healthchecks
+decisions_to_record:
+  - placeholder syntax
+  - timeout defaults
+implementation_steps:
+  - create Nginx template
+  - create Compose template
+  - document generated-file policy
+verification_commands:
+  - future render and syntax checks
+evidence_to_capture:
+  - rendered config proof in later CLI packet
+interview_questions:
+  - Why should the app service not expose a host port?
+  - Why use Nginx as the only public gateway?
+done_when:
+  - templates cover all brief requirements
+  - generated files remain out of source until init renders them
+

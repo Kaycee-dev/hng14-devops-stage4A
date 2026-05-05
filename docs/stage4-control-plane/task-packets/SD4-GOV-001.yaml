@@ -1,0 +1,46 @@
+packet_id: SD4-GOV-001
+objective: Create the governance scaffold and prove no SwiftDeploy implementation has started.
+scope_in:
+  - AGENTS.md
+  - CURRENT_TASK
+  - README.md
+  - config/runtime_status.json
+  - docs/stage4-control-plane/**
+  - scripts/control_plane_check.py
+  - blog/**
+  - journal/**
+scope_out:
+  - manifest.yaml
+  - swiftdeploy
+  - app/**
+  - templates/**
+  - Dockerfile
+  - docker-compose.yml
+  - nginx.conf
+concepts_to_explain:
+  - control-plane truth surfaces
+  - evidence-backed gate closure
+  - implementation guardrails
+decisions_to_record:
+  - governance before implementation
+  - implementation_allowed false until design closes
+implementation_steps:
+  - create governance docs and task packets
+  - add control-plane checker
+  - run checker with governance in progress
+  - record E-001 and close governance gate
+verification_commands:
+  - python scripts/control_plane_check.py
+  - git status --short
+evidence_to_capture:
+  - E-001 control-plane checker pass
+interview_questions:
+  - Why build governance before implementation?
+  - What does the checker prevent?
+  - Why are implementation files forbidden right now?
+done_when:
+  - control-plane checker passes
+  - CURRENT_TASK is SD4-DESIGN-001
+  - governance gate is closed with E-001
+  - no forbidden implementation files exist
+

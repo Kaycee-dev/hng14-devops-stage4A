@@ -1,0 +1,32 @@
+packet_id: SD4-APP-001
+objective: Implement the API service behavior for root, health, mode, and chaos.
+scope_in:
+  - app/**
+  - README.md
+  - docs/stage4-control-plane/**
+scope_out:
+  - CLI lifecycle commands
+  - Nginx and Compose templates
+concepts_to_explain:
+  - process uptime
+  - environment-driven mode
+  - canary response headers
+  - chaos state and recovery
+decisions_to_record:
+  - exact chaos behavior in stable mode
+implementation_steps:
+  - implement root endpoint
+  - implement health endpoint
+  - implement chaos endpoint
+  - add mode header behavior
+verification_commands:
+  - future API test or curl commands
+evidence_to_capture:
+  - endpoint responses
+interview_questions:
+  - Why is uptime process-local?
+  - Why should X-Mode be global in canary?
+done_when:
+  - endpoints match the brief
+  - behavior is documented and defensible
+

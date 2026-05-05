@@ -1,0 +1,38 @@
+packet_id: SD4-CLI-002
+objective: Implement `deploy`, `promote`, and `teardown`.
+scope_in:
+  - swiftdeploy
+  - manifest.yaml
+  - generated docker-compose.yml
+  - docs/stage4-control-plane/**
+scope_out:
+  - blog publishing
+concepts_to_explain:
+  - deployment lifecycle
+  - rolling service restart
+  - mode promotion
+  - cleanup semantics
+decisions_to_record:
+  - restart command strategy
+  - health polling strategy
+implementation_steps:
+  - implement deploy
+  - implement promote canary and stable
+  - implement teardown and --clean
+  - verify health and mode changes
+verification_commands:
+  - ./swiftdeploy deploy
+  - ./swiftdeploy promote canary
+  - ./swiftdeploy promote stable
+  - ./swiftdeploy teardown --clean
+evidence_to_capture:
+  - deploy output
+  - promote plus health confirmation
+  - teardown proof
+interview_questions:
+  - Why restart only the service on promote?
+  - How do you know the new mode is active?
+done_when:
+  - lifecycle commands work end to end
+  - screenshots are ready for proof packet
+

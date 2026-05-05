@@ -1,0 +1,4 @@
+swiftdeploy text eol=lf
+*.sh text eol=lf
+templates/*.tmpl text eol=lf
+Dockerfile text eol=lf

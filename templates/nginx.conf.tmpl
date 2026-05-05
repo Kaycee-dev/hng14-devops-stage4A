@@ -1,0 +1,60 @@
+# nginx.conf rendered by swiftdeploy from manifest.yaml.
+# DO NOT hand-edit nginx.conf; edit manifest.yaml and rerun `swiftdeploy init`.
+
+upstream app_backend {
+    server app:${SERVICE_PORT};
+}
+
+# Access log format mandated by the brief.
+# $${request_time} escapes Python string.Template so the literal nginx variable
+# $request_time survives rendering.
+log_format swiftdeploy '$time_iso8601 | $status | $${request_time}s | $upstream_addr | $request';
+
+server {
+    listen ${NGINX_PORT};
+    server_name _;
+
+    access_log /var/log/nginx/access.log swiftdeploy;
+    error_log  /var/log/nginx/error.log warn;
+
+    # Brief: identify swiftdeploy on every response.
+    add_header X-Deployed-By swiftdeploy always;
+
+    # Brief: forward upstream X-Mode header through to the client.
+    # proxy_pass_header is required because nginx hides some upstream headers
+    # by default; explicit pass-through is the defensible choice.
+    proxy_pass_header X-Mode;
+
+    proxy_connect_timeout ${PROXY_TIMEOUT}s;
+    proxy_send_timeout    ${PROXY_TIMEOUT}s;
+    proxy_read_timeout    ${PROXY_TIMEOUT}s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $$host;
+    proxy_set_header X-Real-IP         $$remote_addr;
+    proxy_set_header X-Forwarded-For   $$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $$scheme;
+
+    location / {
+        proxy_pass http://app_backend;
+    }
+
+    # Brief: JSON error bodies on 502/503/504. The "= @name" form replaces the
+    # status code with our handler's status so we control the response shape.
+    error_page 502 = @err502;
+    error_page 503 = @err503;
+    error_page 504 = @err504;
+
+    location @err502 {
+        default_type application/json;
+        return 502 '{"error":"Bad Gateway","code":"502","service":"swiftdeploy-app","contact":"${ERROR_CONTACT}"}';
+    }
+    location @err503 {
+        default_type application/json;
+        return 503 '{"error":"Service Unavailable","code":"503","service":"swiftdeploy-app","contact":"${ERROR_CONTACT}"}';
+    }
+    location @err504 {
+        default_type application/json;
+        return 504 '{"error":"Gateway Timeout","code":"504","service":"swiftdeploy-app","contact":"${ERROR_CONTACT}"}';
+    }
+}

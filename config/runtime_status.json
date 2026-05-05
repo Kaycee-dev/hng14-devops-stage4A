@@ -1,0 +1,73 @@
+{
+  "stage": "Stage 4A SwiftDeploy",
+  "current_packet": "SD4-BLOG-001",
+  "implementation_allowed": true,
+  "deadline": "2026-05-05T11:59:00+01:00",
+  "timezone": "Africa/Lagos",
+  "gates": {
+    "governance": {
+      "status": "closed",
+      "evidence": [
+        "E-001"
+      ]
+    },
+    "design": {
+      "status": "closed",
+      "evidence": [
+        "E-002"
+      ]
+    },
+    "implementation": {
+      "status": "closed",
+      "evidence": [
+        "E-003",
+        "E-004",
+        "E-005",
+        "E-006",
+        "E-007",
+        "E-010"
+      ]
+    },
+    "proof": {
+      "status": "closed",
+      "evidence": [
+        "E-008"
+      ]
+    },
+    "blog": {
+      "status": "closed",
+      "evidence": [
+        "E-009"
+      ]
+    },
+    "submission": {
+      "status": "ready_for_operator_handoff",
+      "evidence": []
+    }
+  },
+  "verification": {
+    "control_plane_check": "passed",
+    "last_run": "2026-05-04",
+    "summary": "Grader-advice compliance pass applied: image renamed to swiftdeploy-stage4a-app:1.0.0, nginx.port set to 18080. Manifest, generated configs, README, capture script, and proof index updated. D-015 + E-010 recorded. Docker Desktop was offline; operator must rebuild image and rerun capture_evidence.sh before final git push."
+  },
+  "screenshots": {
+    "validate_output": "blog/assets/proof_outputs/01_validate.txt",
+    "deploy_output": "blog/assets/proof_outputs/02_deploy.txt",
+    "promote_healthz": "blog/assets/proof_outputs/03_promote_canary.txt;blog/assets/proof_outputs/04_promote_stable.txt",
+    "generated_configs": "blog/assets/proof_outputs/05_generated_configs.txt",
+    "nginx_access_logs": "blog/assets/proof_outputs/06_nginx_access_log.txt"
+  },
+  "blog": {
+    "status": "draft_ready_to_publish",
+    "draft": "blog/devto/swiftdeploy-stage4.md",
+    "diagrams": [
+      "blog/diagrams/architecture.md",
+      "blog/diagrams/init_pipeline.md",
+      "blog/diagrams/promote_sequence.md",
+      "blog/diagrams/chaos_state.md",
+      "blog/diagrams/hardening_model.md"
+    ],
+    "publish_route": "manual_dev_to_after_final_verification"
+  },
+  "next_exact_step": "Operator: (1) start Docker Desktop, (2) docker build -t swiftdeploy-stage4a-app:1.0.0 ., (3) bash scripts/capture_evidence.sh, (4) screenshot the refreshed proof_outputs/*.txt files for Google Drive, (5) git push to public repo, (6) submit form, (7) optionally publish dev.to article. Deadline 2026-05-05T11:59 WAT."
+}
