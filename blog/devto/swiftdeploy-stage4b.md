@@ -1,135 +1,133 @@
 ---
-title: "SwiftDeploy Stage 4B: Observability, Policy, and Audit"
+title: "I Built a CLI That Writes Its Own Docker Config — Then Taught It to Say No"
 published: false
 tags: devops, opa, prometheus, docker
 ---
 
-# SwiftDeploy Stage 4B: Observability, Policy, and Audit
+Every time I set up a stack from scratch I'd end up touching at least four files: `docker-compose.yml`, `nginx.conf`, a `.env` file, maybe a `Makefile`. Change the port in one place and forget to update the others and something silently breaks. I wanted to fix that. Stage 4A was the fix. Stage 4B was the moment I realised the fix was incomplete.
 
-Stage 4A built the deployment engine: a manifest, templates, Docker Compose,
-Nginx, and a CLI that could deploy, promote, and tear down the stack. Stage 4B
-adds the control loop around that engine.
-
-The new version has three extra responsibilities:
-
-- **Eyes**: `/metrics` exposes Prometheus text for requests, latency, mode, uptime,
-  and chaos state.
-- **Brain**: OPA owns every allow/deny decision for deploy and promote.
-- **Memory**: `history.jsonl` records status/policy checks; `audit_report.md`
-  renders the audit trail.
+This post covers the whole journey: how I built `swiftdeploy`, why I wired in Prometheus metrics and an OPA policy sidecar, and what actually happened when I deliberately tried to break my own canary deployment.
 
 ---
 
-## Architecture
+## Stage 4A: One file, everything else is generated
 
-The full system looks like this:
+The idea was simple. One file — `manifest.yaml` — owns every setting. The CLI reads it and writes `nginx.conf` and `docker-compose.yml`. You never touch the generated files. If you need to change something, you change the manifest and run `./swiftdeploy init` again.
 
-```mermaid
-flowchart LR
-    operator["Operator runs ./swiftdeploy"] -->|"policy query: localhost:18181"| opa["OPA sidecar"]
-    operator -->|"status/deploy checks: localhost:18080"| nginx["Nginx public ingress"]
-    nginx --> app["FastAPI app"]
-    app --> metrics["/metrics Prometheus text"]
-    operator --> history["history.jsonl"]
-    history --> audit["audit_report.md"]
-    manifest["manifest.yaml"] --> init["swiftdeploy init"]
-    templates["templates/"] --> init
-    policies["policies/*.rego"] --> opa
-    init --> compose["docker-compose.yml"]
-    init --> nginxconf["nginx.conf"]
-```
-
-Key isolation guarantees:
-
-- OPA is bound to `127.0.0.1:18181` — the CLI reaches it but the public Nginx
-  ingress has no upstream for it.
-- The app container has no `ports:` mapping — only Nginx publishes externally.
-- Rego policy files mount into OPA read-only (`./policies:/policies:ro`).
-
----
-
-## Design
-
-`manifest.yaml` is still the only file you edit manually. It now includes four
-new top-level sections that `swiftdeploy init` consumes to render both generated
-files:
+The manifest looks like this at its base:
 
 ```yaml
-opa:
-  image: openpolicyagent/opa:1.16.1
-  port: 18181
+services:
+  image: swiftdeploy-stage4b-app:1.0.0
+  port: 3000
+  mode: stable
 
-policy:
-  infrastructure:
-    min_disk_free_gb: 10
-    max_cpu_load: 2.0
-  canary:
-    max_error_rate: 0.01
-    max_p99_latency_seconds: 0.5
-    window_seconds: 30
+nginx:
+  image: nginx:latest
+  port: 18080
+  proxy_timeout: 30
 
-observability:
-  history_file: history.jsonl
-  audit_report: audit_report.md
-  status_interval: 5
+network:
+  name: swiftdeploy-net
+  driver_type: bridge
 ```
 
-The `opa:` block feeds into `templates/docker-compose.tmpl` via
-`string.Template.safe_substitute`. The relevant template stanza:
-
-```yaml
-  opa:
-    image: ${OPA_IMAGE}
-    container_name: swiftdeploy-opa
-    command:
-      - run
-      - --server
-      - --addr=0.0.0.0:8181
-      - --log-level=info
-      - /policies
-    ports:
-      - "127.0.0.1:${OPA_PORT}:8181"
-    networks:
-      - ${NETWORK_NAME}
-    restart: ${RESTART_POLICY}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    volumes:
-      - ./policies:/policies:ro
-```
-
-`swiftdeploy init` calls `config.render_templates()`:
+`swiftdeploy init` takes that and renders two generated files using Python's `string.Template`. The templates live in `templates/` and contain `${VARIABLE}` placeholders that get substituted from the manifest context. Here is the critical bit from `config.py`:
 
 ```python
 def render_templates() -> None:
     ensure_policy_source()
-    ctx = manifest_context()          # pulls all ${VARS} from manifest.yaml
+    ctx = manifest_context()          # reads every ${VAR} from manifest.yaml
     for tmpl_path, out_path in ((NGINX_TMPL, NGINX_OUT), (COMPOSE_TMPL, COMPOSE_OUT)):
         rendered = Template(tmpl_path.read_text(encoding="utf-8")).safe_substitute(ctx)
         atomic_write(out_path, rendered)
 ```
 
-`string.Template.safe_substitute` leaves unknown `${...}` tokens alone, so Nginx
-variables like `${request_time}` in the nginx template survive rendering intact.
-The `atomic_write` helper uses `tempfile.mkstemp` + `os.replace` to avoid
-corrupted configs if the process is interrupted.
+I used `safe_substitute` instead of `substitute` because `substitute` raises an exception on any unknown `${...}` token. Nginx config files are full of variables like `${request_time}` — if I had used `substitute`, rendering would blow up on every nginx variable. `safe_substitute` leaves tokens it doesn't recognise alone, so nginx gets its variables and the manifest gets its values.
 
-The `policy:` thresholds are exposed as `config.policy_config(manifest)` and
-sent to OPA as part of the input document — they are never hardcoded in Rego.
+The `atomic_write` helper writes to a temp file first, then does `os.replace` into the final path. The reason: if something crashes mid-write you end up with a corrupt config. `os.replace` is atomic on every OS Python runs on, so you either get the new file or the old one, never half of each.
+
+### The app
+
+The API service is a FastAPI app with three endpoints: `GET /` returns the mode and version, `GET /healthz` returns uptime, and `POST /chaos` lets you inject failure (more on that later). The `MODE` environment variable controls whether the app is in stable or canary mode — same image, different behaviour. In canary mode every response carries an `X-Mode: canary` header.
+
+### The deployment lifecycle
+
+`./swiftdeploy deploy` calls `init` first, then does `docker compose up -d`, then polls `/healthz` through nginx every second until it gets a 200 or 60 seconds pass. Nginx waits for the app to be healthy before it starts (`depends_on: condition: service_healthy`), so the health poll through nginx is a genuine end-to-end check.
+
+`./swiftdeploy promote canary` mutates `services.mode` in `manifest.yaml` using a targeted regex — one line changes, nothing else. It then re-renders `docker-compose.yml`, recreates only the app container (`--no-deps --force-recreate`), and confirms the mode by checking both the JSON body and the `X-Mode` header. If either signal is wrong, the promote fails.
+
+`./swiftdeploy teardown --clean` brings everything down and deletes the generated configs. Running `./swiftdeploy init` afterwards regenerates byte-identical files. The grader can verify this. That idempotency guarantee is the whole point of the manifest-driven approach.
 
 ---
 
-## Guardrails
+## Why Stage 4A wasn't enough
 
-**The core principle:** the CLI gathers facts; OPA decides; the CLI enforces
-and explains. No threshold logic lives in Python.
+After building that I realised I had no visibility into what was happening inside the stack once it was running, and no automatic safety check before promoting. I was flying blind. I could deploy a canary that was returning 500 errors on every request and `promote stable` would just do it, no questions asked.
 
-### Infrastructure policy (pre-deploy)
+Stage 4B adds three things:
 
-The `policies/infrastructure.rego` disk-free deny rule:
+- **Eyes** — a `/metrics` endpoint in Prometheus text format so I can see what is happening
+- **Brain** — an OPA sidecar that makes every allow/deny decision so the CLI never has to
+- **Memory** — `history.jsonl` and `audit_report.md` so there is a record of what happened and when
+
+---
+
+## The metrics endpoint
+
+The app exposes `GET /metrics` and returns Prometheus text format — no Prometheus library, hand-rolled. Here is what it looks like right after a fresh deploy:
+
+```
+$ curl -i http://127.0.0.1:18080/metrics
+HTTP/1.1 200 OK
+Content-Type: text/plain; version=0.0.4; charset=utf-8
+X-Deployed-By: swiftdeploy
+
+# HELP http_requests_total Total HTTP requests by method, path, and status code.
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/healthz",status_code="200"} 2
+# HELP http_request_duration_seconds HTTP request latency histogram in seconds.
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.005"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.01"} 2
+...
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="+Inf"} 2
+http_request_duration_seconds_sum{method="GET",path="/healthz"} 0.001272395
+http_request_duration_seconds_count{method="GET",path="/healthz"} 2
+# HELP app_uptime_seconds Process uptime in seconds.
+# TYPE app_uptime_seconds gauge
+app_uptime_seconds 4.557
+# HELP app_mode Current deployment mode, stable=0 and canary=1.
+# TYPE app_mode gauge
+app_mode 0
+# HELP chaos_active Current chaos state, none=0 slow=1 error=2.
+# TYPE chaos_active gauge
+chaos_active 0
+```
+
+The histogram buckets are cumulative — each `le` bucket contains all requests at or below that latency. Two requests, both under 5 ms, so every bucket from `le="0.005"` upward shows 2. The `+Inf` bucket always equals `_count`.
+
+`/metrics` and `/chaos` are deliberately exempt from chaos middleware. The reason: if error chaos is injected at 100% rate and `/metrics` also returned 500s, the CLI would lose its ability to observe the failure and the policy loop would go blind. The exemption is intentional.
+
+---
+
+## The policy brain: why OPA and not a Python if-statement
+
+My first instinct was to put the threshold checks directly in the CLI:
+
+```python
+# what I did NOT do
+disk_free = shutil.disk_usage("/").free / (1024 ** 3)
+if disk_free < 10:
+    print("deploy blocked: not enough disk")
+    sys.exit(1)
+```
+
+The problem with this is that the threshold is a magic number in Python code. If you want to change it you edit the Python. If someone else has a different threshold they fork the script. There is no audit trail of what value was used when. And the policy is not testable in isolation.
+
+OPA solves this differently. The CLI collects facts and sends them to OPA as a JSON document. OPA evaluates Rego rules against the document and returns a decision. The CLI enforces whatever OPA says. The CLI never checks a threshold itself.
+
+The infrastructure policy lives in `policies/infrastructure.rego`:
 
 ```rego
 deny contains {
@@ -144,219 +142,261 @@ deny contains {
 }
 ```
 
-`input.thresholds` is populated by `swiftdeploy_lib/policy.py`:
+Notice `input.thresholds.min_disk_free_gb` — not a hardcoded number. The threshold comes from the input document, which the CLI builds from `manifest.yaml`:
 
 ```python
 def infrastructure_input(question: str) -> dict[str, Any]:
     manifest = config.load_manifest()
     return {
         "question": question,
-        "host": host_stats(),                                       # disk_free_gb, cpu_load
-        "thresholds": config.policy_config(manifest)["infrastructure"],  # from manifest.yaml
+        "host": host_stats(),                                        # disk_free_gb, cpu_load
+        "thresholds": config.policy_config(manifest)["infrastructure"],   # from manifest.yaml
     }
 ```
 
-The threshold values come from `manifest.yaml` → `config.policy_config()` →
-`input.thresholds`. Changing a limit means editing one field in `manifest.yaml`
-and rerunning `swiftdeploy init`; the Rego file never needs to change.
+The manifest has:
 
-### Canary safety policy (pre-promote)
+```yaml
+policy:
+  infrastructure:
+    min_disk_free_gb: 10
+    max_cpu_load: 2.0
+  canary:
+    max_error_rate: 0.01
+    max_p99_latency_seconds: 0.5
+```
 
-The `policies/canary.rego` error-rate deny rule follows the same pattern — the
-CLI scrapes `/metrics`, calculates `error_rate` and `p99_latency_seconds`, wraps
-them in a `canary_input()` document, and sends it to OPA. The decision object
-always contains `allowed`, `reason`, and a `violations` list so the CLI can
-surface the exact violation to the operator.
+Changing a threshold is a one-line edit in `manifest.yaml`. The Rego file never changes.
 
-OPA returns no bare booleans. Every denial carries its reason.
+### Why OPA runs as a sidecar
 
-### Distinct failure modes
+OPA runs as a separate Docker container on the same internal network. The CLI talks to it on `127.0.0.1:18181`. The important thing is what is NOT there: there is no nginx upstream for OPA. The nginx config has exactly one `location / { proxy_pass http://app_backend; }` block. Requests through port 18080 reach the app and nothing else.
 
-If OPA is unavailable the CLI never silently continues. The five named failure
-modes are: `opa_timeout`, `opa_unavailable`, `opa_policy_error`,
-`opa_malformed_response`, `opa_unhealthy`. Each produces a distinct,
-human-readable message.
+The OPA port binding is `127.0.0.1:18181:8181` — loopback only on the host. External machines cannot reach OPA directly. And even from inside the Docker network, nginx has no route to the OPA container's address, so a client hitting nginx cannot tunnel through to OPA.
+
+### OPA never returns a bare boolean
+
+Every decision object carries `allowed`, `reason`, and a `violations` list:
+
+```json
+{
+  "domain": "infrastructure",
+  "question": "pre_deploy",
+  "allowed": false,
+  "reason": "infrastructure policy denied: 1 violation(s)",
+  "violations": [
+    {
+      "id": "disk_free_too_low",
+      "message": "disk free 121.359GB is below required 1e+06GB",
+      "observed": 121.359,
+      "threshold": 1000000.0
+    }
+  ]
+}
+```
+
+The CLI prints the reason and each violation ID. An operator looking at a denied deploy sees exactly which rule fired and what values triggered it, not just "denied".
 
 ---
 
-## Chaos
+## The pre-deploy gate in action
 
-In canary mode, `POST /chaos` can inject slow responses or errors. The metrics
-endpoint remains reachable during chaos so the policy loop can observe the
-failure instead of going blind.
-
-### What happened when error chaos blocked promotion
+To prove the deploy gate worked I temporarily set `min_disk_free_gb: 1000000` in the manifest — an impossible threshold — and ran `./swiftdeploy deploy`:
 
 ```
-$ curl -X POST /chaos error rate=1.0
-HTTP/1.1 200 OK
-Server: nginx/1.29.8
-Date: Wed, 06 May 2026 17:01:15 GMT
-Content-Type: application/json
-Content-Length: 52
-Connection: keep-alive
-x-mode: canary
-X-Deployed-By: swiftdeploy
-
-{"chaos":{"mode":"error","duration":0.0,"rate":1.0}}
-$ ./swiftdeploy promote stable    # expect canary safety denial
- Container swiftdeploy-opa Running 
-[FAIL] promote blocked by policy; manifest.yaml was not changed
-swiftdeploy promote: target mode=stable
-swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
+$ ./swiftdeploy deploy    # with min_disk_free_gb set to 1000000
+swiftdeploy deploy: rendering and starting policy sidecar
+swiftdeploy init: rendering generated files from manifest.yaml
 rendered nginx.conf <- templates\nginx.conf.tmpl
 rendered docker-compose.yml <- templates\docker-compose.tmpl
 OK: nginx.conf and docker-compose.yml regenerated.
 swiftdeploy policy: starting OPA sidecar
 [PASS] OPA health check passed
+swiftdeploy deploy: querying pre-deploy policy
+[FAIL] policy/infrastructure: infrastructure policy denied: 1 violation(s)
+  - disk_free_too_low: disk free 121.359GB is below required 1e+06GB
+[FAIL] deploy blocked by policy; app and nginx were not started
+```
+
+OPA starts. OPA checks. OPA denies. The app and nginx containers never even get created. After restoring the threshold to 10, deploy succeeds in under 2 seconds.
+
+---
+
+## The live status dashboard
+
+`./swiftdeploy status` scrapes `/metrics` every 5 seconds, calculates req/s and P99 latency against the previous snapshot, queries both OPA domains for their current verdict, and appends a record to `history.jsonl`. Here is what a healthy stable deployment looks like:
+
+```
+$ ./swiftdeploy status --once
+SwiftDeploy status @ 2026-05-06T18:37:02.816576+00:00
+mode=stable chaos=none uptime=5.2s
+req/s=2.000 error_rate=0.00% p99=0.005s window=0.0s
+Policy Compliance:
+[PASS] policy/infrastructure: infrastructure policy passed
+[PASS] policy/canary: canary safety policy passed
+history appended: history.jsonl
+```
+
+Both policies show green. P99 is 5 ms. Now watch what happens after chaos.
+
+---
+
+## Chaos mode and what the dashboard showed
+
+After promoting to canary I injected a 100% error rate:
+
+```
+$ curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"mode":"error","rate":1.0}' http://127.0.0.1:18080/chaos
+
+{"chaos":{"mode":"error","duration":0.0,"rate":1.0}}
+```
+
+The canary is now returning 500 on every non-exempt request. The status dashboard immediately picked this up:
+
+```
+SwiftDeploy status @ 2026-05-06T18:37:10.281061+00:00
+mode=canary chaos=error uptime=6.7s
+req/s=4.469 error_rate=100.00% p99=0.005s window=1.1s
+Policy Compliance:
+[PASS] policy/infrastructure: infrastructure policy passed
+[FAIL] policy/canary: canary safety policy denied: 1 violation(s)
+  - error_rate_too_high: error rate 1.0000 is above allowed 0.0100
+history appended: history.jsonl
+```
+
+The canary policy is now red. `error_rate=100.00%`. OPA knows. The status loop is recording this to `history.jsonl` every scrape cycle.
+
+Now I tried to promote back to stable:
+
+```
+$ ./swiftdeploy promote stable
+swiftdeploy promote: target mode=stable
+...
+[PASS] OPA health check passed
   policy: querying canary safety before manifest mutation
 [FAIL] policy/canary: canary safety policy denied: 1 violation(s)
   - error_rate_too_high: error rate 1.0000 is above allowed 0.0100
-expected promote denial exit=1
+[FAIL] promote blocked by policy; manifest.yaml was not changed
+```
 
-$ curl -X POST /chaos recover
-HTTP/1.1 200 OK
-Server: nginx/1.29.8
-Date: Wed, 06 May 2026 17:01:22 GMT
-Content-Type: application/json
-Content-Length: 49
-Connection: keep-alive
-x-mode: canary
-X-Deployed-By: swiftdeploy
+The last line is the safety guarantee that matters: `manifest.yaml was not changed`. The policy check runs **before** the manifest mutation. A failed check leaves the stack exactly as it was. No half-promote. No corrupted state.
+
+After recovering from chaos:
+
+```
+$ curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"mode":"recover"}' http://127.0.0.1:18080/chaos
 
 {"chaos":{"mode":null,"duration":0.0,"rate":0.0}}
 ```
 
-Reading the sequence: error chaos is injected → the canary is now generating
-100% errors → the promote command queries OPA → OPA reports
-`error_rate_too_high: error rate 1.0000 is above allowed 0.0100` →
-`[FAIL] promote blocked by policy; manifest.yaml was not changed`. The last line
-is the critical safety guarantee: OPA runs its check *before* the manifest is
-mutated. A failed policy check leaves the stack in the previous state.
+The next `promote stable` succeeds because OPA now sees a clean error rate.
 
 ---
 
-## Replication
+## The audit trail
 
-Follow these steps to run the full Stage 4B lifecycle on your own machine:
+`./swiftdeploy audit` reads `history.jsonl` and generates `audit_report.md`. After the whole lifecycle above:
 
-1. **Clone the repo**
-   ```bash
-   git clone <repo-url> swiftdeploy && cd swiftdeploy
-   ```
+```
+$ ./swiftdeploy audit
+audit: wrote audit_report.md from 6 history record(s)
+```
 
-2. **Install prerequisites** — Docker Desktop, Python 3.11+, PyYAML, Git Bash
-   (on Windows). On Linux/macOS, the system shell is fine.
-   ```bash
-   pip install pyyaml
-   ```
+The report's timeline section:
 
-3. **Build and deploy**
-   ```bash
-   docker build -t swiftdeploy-stage4b-app:1.0.0 .
-   ./swiftdeploy deploy
-   ```
-   The deploy command runs `swiftdeploy init` (renders configs), starts the OPA
-   sidecar, queries the infrastructure policy (disk free + CPU load), and only
-   brings up the app and Nginx containers if OPA approves.
+| Time | Mode | Chaos | Req/s | Error Rate | P99 Latency |
+|---|---|---|---:|---:|---:|
+| 2026-05-06T18:36:54 | | | 0.000 | 0.00% | 0.000s |
+| 2026-05-06T18:36:55 | | | 0.000 | 0.00% | 0.000s |
+| 2026-05-06T18:37:02 | stable | none | 2.000 | 0.00% | 0.005s |
+| 2026-05-06T18:37:04 | stable | none | 4.721 | 0.00% | 0.005s |
+| 2026-05-06T18:37:10 | canary | error | 4.469 | 100.00% | 0.005s |
+| 2026-05-06T18:37:12 | canary | none | 4.519 | 0.00% | 0.005s |
 
-4. **Check the live status dashboard**
-   ```bash
-   ./swiftdeploy status --once    # single snapshot
-   ./swiftdeploy status           # live refresh every 5 s
-   ```
+The violations section:
 
-5. **Promote to canary mode**
-   ```bash
-   ./swiftdeploy promote canary
-   ```
+```
+- 2026-05-06T18:36:54  infrastructure  deny: disk_free_too_low
+    disk free 121.359GB is below required 1e+06GB
+- 2026-05-06T18:37:10  canary  deny: error_rate_too_high
+    error rate 1.0000 is above allowed 0.0100
+```
 
-6. **Inject chaos** (triggers an error response rate of 100 %)
-   ```bash
-   curl -s -X POST -H "Content-Type: application/json" \
-     -d '{"mode":"error","rate":1.0}' http://127.0.0.1:18080/chaos
-   ```
-
-7. **Try to promote to stable — expect denial**
-   ```bash
-   ./swiftdeploy promote stable
-   # [FAIL] policy/canary: canary safety policy denied: 1 violation(s)
-   ```
-
-8. **Recover and promote successfully**
-   ```bash
-   curl -s -X POST -H "Content-Type: application/json" \
-     -d '{"mode":"recover"}' http://127.0.0.1:18080/chaos
-   ./swiftdeploy promote stable
-   ```
-
-9. **View the audit trail**
-   ```bash
-   ./swiftdeploy audit && cat audit_report.md
-   ```
-
-10. **Tear down**
-    ```bash
-    ./swiftdeploy teardown --clean
-    # Regenerate to verify idempotency:
-    ./swiftdeploy init
-    ```
+Two violations, two causes, timestamps on both. The first was the intentional disk threshold test. The second was the chaos injection. Both are there even though neither resulted in a broken deployment — that is the point of an audit trail.
 
 ---
 
-## Lessons Learned
+## Replicate it yourself
 
-### (a) CLI as enforcer, OPA as decision-maker
+```bash
+# 1. Clone
+git clone https://github.com/Kaycee-dev/hng14-devops-stage4A swiftdeploy
+cd swiftdeploy
 
-The most important architectural line is the boundary between the CLI and OPA.
-If the CLI reads threshold values and compares them itself, OPA becomes
-decoration that can be bypassed. The defensible design keeps the CLI in the
-"gather facts, call OPA, enforce result" role and puts all comparison logic
-exclusively in Rego. This means a new policy rule never requires touching Python
-— only the `.rego` file changes, and the manifest already owns the thresholds.
+# 2. Install the one Python dependency
+pip install pyyaml
 
-### (b) The 30-second pre-promote window design choice
+# 3. Build the app image
+docker build -t swiftdeploy-stage4b-app:1.0.0 .
 
-The brief asks for error rate and P99 latency "over the last 30 seconds." The
-implementation uses a live two-snapshot window: the CLI takes one metrics scrape,
-makes several `/healthz` pings to generate traffic, then takes a second scrape
-roughly 1–1.3 seconds later. The delta across that window is what OPA evaluates.
+# 4. Validate — should show 5 PASS lines
+./swiftdeploy validate
 
-The design trade-off is low latency vs. confidence window. A rolling 30-second
-window drawn from `history.jsonl` would be more statistically robust, but it
-requires the operator to have been running `swiftdeploy status` continuously for
-at least 30 seconds before promoting. The live two-scrape approach gives an
-immediate signal: if the canary is producing errors *right now*, the promotion
-is blocked within about 1 second of starting the promote command. The
-`policy_window_target_seconds=30` field is recorded in history for auditing but
-is not enforced as a gate. Operators who want a longer confidence window should
-run `swiftdeploy status` for ≥30 seconds before promoting; the rolling history
-in `history.jsonl` will then contain a 30-second picture they can audit.
+# 5. Deploy (OPA starts first, policy check runs, then app + nginx)
+./swiftdeploy deploy
 
-> **NOTE (promote gate design):** The pre-promote gate uses a live two-snapshot
-> delta window (~1 second). The `status --interval N` loop builds continuous
-> history in `history.jsonl`; operators who want a longer pre-promote confidence
-> window should run `status` for ≥30 seconds before promoting.
+# 6. Check status
+./swiftdeploy status --once
 
-### (c) Windows portability: getloadavg is unavailable
+# 7. Promote to canary
+./swiftdeploy promote canary
 
-`os.getloadavg()` is a POSIX function that does not exist on Windows. The
-`host_stats()` function in `swiftdeploy_lib/policy.py` catches `AttributeError`
-and falls back to `cpu_load = 0.0`. On the development machine (Windows 11),
-every `pre_deploy` record in `history.jsonl` shows `"cpu_load": 0.0`. The CPU
-policy check never fires from real load on Windows. To demonstrate the CPU
-policy path on Windows, the proof bundle (`12_cpu_policy_denial.txt`) sets
-`max_cpu_load: -1.0` so that `0.0 > -1.0` triggers the denial rule. On Linux
-or macOS, `getloadavg()` returns real values and a threshold of `2.0` is
-sufficient.
+# 8. Inject chaos
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"mode":"error","rate":1.0}' http://127.0.0.1:18080/chaos
 
-### (d) Generated artifact discipline
+# 9. Watch status go red
+./swiftdeploy status --once
 
-The source of truth is `manifest.yaml`. `nginx.conf` and `docker-compose.yml`
-are outputs, not inputs — they must never be hand-edited. The proof of this
-discipline is the teardown-and-regen test: `swiftdeploy teardown --clean`
-deletes both generated files, then `swiftdeploy init` regenerates
-byte-identical copies. Any drift between the manifest and the generated files
-is caught immediately because `init` always runs before `deploy` and
-`promote`. Keeping generated artifacts out of the manual-edit loop also means
-the submission grader can verify idempotency with a single command.
+# 10. Try to promote to stable — policy blocks it
+./swiftdeploy promote stable
+
+# 11. Recover
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"mode":"recover"}' http://127.0.0.1:18080/chaos
+
+# 12. Now promote succeeds
+./swiftdeploy promote stable
+
+# 13. Generate the audit report
+./swiftdeploy audit
+cat audit_report.md
+
+# 14. Tear down and prove regeneration
+./swiftdeploy teardown --clean
+./swiftdeploy init      # nginx.conf and docker-compose.yml come back byte-identical
+```
+
+**Windows note:** run everything inside Git Bash. `os.getloadavg()` does not exist on Windows, so CPU load always reads as 0.0. The CPU policy check still works — to prove it, set `max_cpu_load: -1.0` in `manifest.yaml` and run deploy. That forces `0.0 > -1.0` and you get a CPU denial. On Linux or macOS the real load average is used and a threshold of 2.0 is meaningful.
+
+---
+
+## Lessons learned
+
+### The CLI is an enforcer, not a judge
+
+The most tempting shortcut was putting threshold comparisons directly in the Python. It would have been three lines of code. The problem is that once you put a threshold in Python, OPA is just logging middleware — you can bypass it by changing the Python. The design that actually holds is: the CLI gathers facts, calls OPA, reads the decision, acts on it. The CLI never knows what the thresholds are. If you want to understand why a deploy was blocked, you read the Rego file and the manifest, not the Python.
+
+### The single source of truth saves you at 2am
+
+Everything flows from `manifest.yaml`. When the grader deletes `nginx.conf` and `docker-compose.yml` and runs `./swiftdeploy init`, they get the same files back. The SHA256 hash of the generated files is deterministic given the manifest. If something breaks, you open the manifest. You do not hunt through five separate files trying to find where the port is defined.
+
+### Generated artifacts and source files must be clearly separated
+
+`nginx.conf` and `docker-compose.yml` have `DO NOT HAND-EDIT` headers. `history.jsonl` and `audit_report.md` are generated outputs of the CLI runtime. None of these are source files. Committing them to the repo is fine as evidence and for the grader, but they must never be the thing you edit to configure the stack. The moment you hand-edit a generated file you break the invariant the whole tool is built on.
+
+### The two-scrape window is a real trade-off
+
+The brief asks for error rate "over the last 30 seconds." What the implementation actually does is take two metrics scrapes about 1 second apart and evaluate the delta. This gives an immediate signal — if the canary is broken right now, the next promote is blocked within 1 second of the command starting. The trade-off is that a bursty error spike from 10 seconds ago would not block promotion. The right answer for production is to run `./swiftdeploy status` for 30 seconds before promoting so the rolling history is warm. For this project the live window proved the policy gate works; the 30-second window is a design goal, not a current implementation constraint.
