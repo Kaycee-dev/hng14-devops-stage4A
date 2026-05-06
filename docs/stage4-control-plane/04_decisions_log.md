@@ -167,3 +167,67 @@
 - Rationale: A tool that "works on my machine" but breaks for the grader is a failed deployment tool by definition.
 - Interview defense: "I declared the runtime contract up front and enforced it where I could. Anything outside that contract is the operator's responsibility, but anything inside it is ours."
 
+## D-016 - Stage 4B keeps the Bash entrypoint and moves complex logic into Python helpers
+
+- Date: `2026-05-06`
+- Decision: Keep `./swiftdeploy` as the root executable, but route complex Stage 4B behavior through a small Python package.
+- Rationale: Bash remains a good process launcher, but OPA JSON calls, metrics parsing, history windows, and audit rendering are structured-data problems. Keeping them in heredocs would be harder to test and defend.
+- Interview defense: "The operator still runs one executable, but the complicated parts now live in importable Python modules where JSON, time windows, and markdown generation are easier to reason about."
+
+## D-017 - Metrics use Prometheus text format and default histogram buckets
+
+- Date: `2026-05-06`
+- Decision: `/metrics` emits Prometheus text format with cumulative counters, gauges, and a duration histogram using the default Prometheus client bucket pattern from 5ms through 10s plus `+Inf`.
+- Rationale: Prometheus counters and histograms are cumulative by design; the CLI can derive request rates and latency windows by comparing scrapes.
+- Interview defense: "The app exports raw cumulative observations. The status and policy layers calculate windows from snapshots, which matches how Prometheus-style monitoring works."
+
+## D-018 - Observability and recovery endpoints stay reachable during chaos
+
+- Date: `2026-05-06`
+- Decision: `/chaos` and `/metrics` are exempt from injected slow/error chaos.
+- Rationale: `/chaos` must remain available so the operator can recover, and `/metrics` must remain available so the canary safety gate can observe failures instead of being blinded by them.
+- Interview defense: "Chaos should degrade user traffic, not the control loop that detects and recovers from the degradation."
+
+## D-019 - OPA is the only allow/deny decision maker
+
+- Date: `2026-05-06`
+- Decision: The CLI gathers host stats and metrics, sends domain-specific inputs to OPA, and enforces the decision object returned by Rego. The CLI does not duplicate threshold comparisons.
+- Rationale: The brief explicitly says all decision logic lives in OPA. Repeating comparisons in Bash/Python would create two policy engines and make drift likely.
+- Interview defense: "The CLI is the enforcement point, not the policy brain. It can explain and enforce OPA's answer, but it cannot decide that a threshold is acceptable on its own."
+
+## D-020 - Policy thresholds live in manifest-derived input, not Rego
+
+- Date: `2026-05-06`
+- Decision: Infrastructure and canary thresholds are configured under `manifest.yaml` and passed to OPA inside `input.thresholds`.
+- Rationale: Rego files should express policy shape; environment-specific limits belong to data so they can change without editing the policy module.
+- Interview defense: "Changing from 10 GB to 20 GB is an environment setting, not a new policy language rule. That value belongs in data."
+
+## D-021 - All promote directions are policy-gated
+
+- Date: `2026-05-06`
+- Decision: Both `promote canary` and `promote stable` query the canary safety policy before mutating the manifest or recreating the app.
+- Rationale: The operator selected a conservative gate for every mode transition. This prevents moving between deployment states when the current metrics window is already unsafe.
+- Interview defense: "A promotion is a lifecycle mutation. If the canary safety policy says the system is unhealthy, the tool should stop before changing runtime state."
+
+## D-022 - `history.jsonl` and `audit_report.md` are generated audit artifacts
+
+- Date: `2026-05-06`
+- Decision: `status` appends one JSON object per scrape to `history.jsonl`; `audit` reads that file and writes `audit_report.md`.
+- Rationale: JSONL is append-friendly and machine-readable, while markdown is the grader-facing human report format.
+- Interview defense: "The audit trail keeps raw events in JSONL and renders a readable report from them. That separates evidence capture from presentation."
+
+## D-023 - Nginx validation injects the Compose-only upstream hostname
+
+- Date: `2026-05-06`
+- Decision: The containerized `nginx -t` validation adds `--add-host app:127.0.0.1`.
+- Trigger: Standalone `docker run nginx -t` failed because the generated config references the Compose DNS name `app`, which does not exist outside the Compose network.
+- Rationale: Runtime Compose DNS will resolve `app`; the syntax check only needs a deterministic hostname so nginx can parse the upstream block.
+- Interview defense: "The validator is still testing the same nginx binary and config. The injected host entry only replaces Compose DNS for the isolated syntax-check container."
+
+## D-024 - OPA startup failures are surfaced as policy failure modes
+
+- Date: `2026-05-06`
+- Decision: OPA health and policy calls catch connection refusal, timeout, HTTP policy errors, malformed responses, and startup disconnects as distinct operator-facing modes.
+- Trigger: The first deploy saw OPA close the health connection during startup; the CLI originally printed a Python traceback.
+- Rationale: The brief requires the CLI to never crash or hang when OPA is unavailable.
+- Interview defense: "OPA problems are deployment facts, not Python exceptions for the operator to debug. The CLI maps them to named failure modes."

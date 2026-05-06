@@ -1,9 +1,11 @@
 # Internal HNG channel posts and AI planning notes — must not ship to the
 # public submission repo.
 claude_response.md
+.claude/
 stage3_result_feedback.md
 stage4_forwarning.md
 task_details.md
+task_details_4B.md
 
 # Local Python environment created by scripts/smoke_app.py.
 .venv-app/

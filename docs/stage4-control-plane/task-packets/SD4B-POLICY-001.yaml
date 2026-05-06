@@ -1,0 +1,30 @@
+packet_id: SD4B-POLICY-001
+objective: Add OPA policy source, manifest thresholds, and generated Compose support.
+scope_in:
+  - manifest.yaml
+  - templates/docker-compose.tmpl
+  - policies/**
+  - swiftdeploy_lib/**
+  - docs/stage4-control-plane/**
+  - journal/**
+concepts_to_explain:
+  - Rego domains as independent questions
+  - policy data versus policy code
+  - localhost-only OPA access
+decisions_to_record:
+  - OPA image tag and port
+  - policy response object shape
+implementation_steps:
+  - add policies/infrastructure.rego and policies/canary.rego
+  - add manifest policy defaults
+  - render OPA service into Compose with policies mounted read-only
+verification_commands:
+  - ./swiftdeploy init
+  - docker compose -f docker-compose.yml config --quiet
+evidence_to_capture:
+  - rendered OPA service proof
+interview_questions:
+  - How do you prove OPA is not exposed through Nginx?
+done_when:
+  - Compose includes OPA sidecar
+  - Rego domains return reason-bearing decision objects

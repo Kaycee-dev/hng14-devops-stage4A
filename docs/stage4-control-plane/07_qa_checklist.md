@@ -46,3 +46,16 @@
 - [ ] Operator opens each `.txt` file in a terminal and screenshots for Google Drive (manual step).
 - [ ] Google Drive folder link added to submission form.
 - [ ] Submission form ready before `2026-05-05 11:59 WAT`.
+
+## Stage 4B
+
+- [x] Stage 4B task packets exist (E-011).
+- [x] Stage 4B design decisions are recorded (E-012).
+- [x] `/metrics` exposes request, latency, uptime, mode, and chaos metrics (E-013).
+- [x] OPA sidecar is generated in Compose and isolated from Nginx ingress (E-014).
+- [x] Infrastructure policy blocks deploy on low disk or high CPU in Rego tests (E-014).
+- [x] Canary policy blocks promote on high error rate or high p99 latency in Rego tests (E-014).
+- [x] `status` writes `history.jsonl` and shows policy compliance (E-015).
+- [x] `audit` writes clean GitHub Markdown (E-015).
+- [x] Stage 4B proof outputs are refreshed (E-016).
+- [x] Stage 4B article draft is updated from evidence (E-017).

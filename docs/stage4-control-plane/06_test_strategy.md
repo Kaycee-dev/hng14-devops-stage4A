@@ -39,3 +39,13 @@
 - README contains setup, subcommand walkthrough, architecture, and design defense.
 - Blog draft claims match evidence.
 
+## Stage 4B Checks
+
+- `python scripts/smoke_app.py` must verify `/metrics`, required metric names, labels, histogram buckets, and gauges.
+- Rego policies must return reason-bearing decision objects, not booleans, for both allow and deny cases.
+- `swiftdeploy init` must render an OPA service that mounts `policies/` read-only and binds only to `127.0.0.1`.
+- `swiftdeploy deploy` must start OPA first, query pre-deploy policy, and stop before app/nginx when OPA denies.
+- `swiftdeploy promote canary` and `promote stable` must query canary safety policy before mutating `manifest.yaml`.
+- `swiftdeploy status --once` must scrape `/metrics`, calculate req/s and p99, query policy compliance, and append `history.jsonl`.
+- `swiftdeploy audit` must create GitHub-flavored `audit_report.md` from `history.jsonl`.
+- OPA must not be reachable via the Nginx port.

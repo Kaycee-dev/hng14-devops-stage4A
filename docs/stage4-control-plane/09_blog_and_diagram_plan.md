@@ -1,5 +1,14 @@
 # Blog And Diagram Plan
 
+## Stage 4B Update
+
+- Article draft: `blog/devto/swiftdeploy-stage4b.md`.
+- Required additions: OPA sidecar architecture, metrics/status flow, policy decision flow, chaos failure capture, and audit report generation.
+- Claims must be refreshed from Stage 4B proof outputs before manual publishing.
+- Final Stage 4B diagram sources:
+  - `blog/diagrams/stage4b_architecture.md`
+  - `blog/diagrams/policy_gate_flow.md`
+
 The dev.to article is prepared in the repo first and published manually after the final evidence exists.
 
 ## Draft
@@ -49,4 +58,3 @@ drift from the architecture.
 - Screenshots must come from final local proof commands.
 - Blog copy must not claim production readiness.
 - Any future generated image must be relevant to the architecture, not decorative filler.
-

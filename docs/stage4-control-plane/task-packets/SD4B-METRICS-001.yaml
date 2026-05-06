@@ -1,0 +1,27 @@
+packet_id: SD4B-METRICS-001
+objective: Add Prometheus-compatible application metrics without regressing Stage 4A behavior.
+scope_in:
+  - app/**
+  - scripts/smoke_app.py
+  - docs/stage4-control-plane/**
+  - journal/**
+concepts_to_explain:
+  - counters, gauges, and histograms
+  - why metrics are cumulative
+  - why observability endpoints stay reachable during chaos
+decisions_to_record:
+  - histogram bucket set
+  - metrics endpoint content type
+implementation_steps:
+  - instrument HTTP request counts and durations
+  - expose app uptime, mode, and chaos gauges
+  - extend smoke tests for /metrics
+verification_commands:
+  - python scripts/smoke_app.py
+evidence_to_capture:
+  - metrics smoke output
+interview_questions:
+  - How is P99 derived from histogram buckets?
+done_when:
+  - /metrics exposes all required series
+  - smoke tests pass in stable and canary modes

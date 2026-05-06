@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -33,6 +34,14 @@ def expect(label: str, condition: bool, detail: str = "") -> int:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {label}" + (f"  -> {detail}" if detail else ""))
     return 0 if condition else 1
+
+
+def metric_value(text: str, metric_name: str) -> float | None:
+    pattern = re.compile(rf"^{re.escape(metric_name)}\s+([-+0-9.eE]+)$", re.MULTILINE)
+    match = pattern.search(text)
+    if not match:
+        return None
+    return float(match.group(1))
 
 
 def run_stable() -> int:
@@ -60,6 +69,20 @@ def run_stable() -> int:
     failures += expect("stable /chaos returns 403", r.status_code == 403, str(r.status_code))
     failures += expect("stable /chaos detail mentions stable", "stable" in r.text.lower())
     failures += expect("stable /chaos has no X-Mode", "X-Mode" not in r.headers)
+
+    r = client.get("/metrics")
+    metrics = r.text
+    failures += expect("stable /metrics returns 200", r.status_code == 200, str(r.status_code))
+    failures += expect("stable /metrics content-type is prometheus text",
+                       "text/plain" in r.headers.get("content-type", ""))
+    failures += expect("stable metrics include http_requests_total",
+                       'http_requests_total{method="GET",path="/",status_code="200"}' in metrics)
+    failures += expect("stable metrics include /chaos 403 counter",
+                       'http_requests_total{method="POST",path="/chaos",status_code="403"}' in metrics)
+    failures += expect("stable metrics include duration histogram bucket",
+                       'http_request_duration_seconds_bucket{method="GET",path="/",le="0.5"}' in metrics)
+    failures += expect("stable metrics app_mode=0", metric_value(metrics, "app_mode") == 0.0)
+    failures += expect("stable metrics chaos_active=0", metric_value(metrics, "chaos_active") == 0.0)
 
     return failures
 
@@ -104,6 +127,15 @@ def run_canary() -> int:
     failures += expect("canary / under error=1.0 has X-Mode", r.headers.get("X-Mode") == "canary",
                        "middleware order check: X-Mode must stamp chaos 500s")
 
+    r = client.get("/metrics")
+    metrics = r.text
+    failures += expect("canary /metrics exempt from error chaos", r.status_code == 200, str(r.status_code))
+    failures += expect("canary /metrics has X-Mode", r.headers.get("X-Mode") == "canary")
+    failures += expect("canary metrics include app_mode=1", metric_value(metrics, "app_mode") == 1.0)
+    failures += expect("canary metrics include chaos_active=2", metric_value(metrics, "chaos_active") == 2.0)
+    failures += expect("canary metrics counted chaos 500",
+                       'http_requests_total{method="GET",path="/",status_code="500"}' in metrics)
+
     # /chaos itself must remain reachable so we can recover even at rate=1.0
     r = client.post("/chaos", json={"mode": "recover"})
     failures += expect("canary /chaos exempt from chaos at rate=1.0", r.status_code == 200, str(r.status_code))
@@ -115,6 +147,11 @@ def run_canary() -> int:
     # invalid payload should be 400 in canary
     r = client.post("/chaos", json={"mode": "nope"})
     failures += expect("canary /chaos invalid mode rejected", r.status_code in (400, 422), str(r.status_code))
+
+    r = client.get("/metrics")
+    metrics = r.text
+    failures += expect("canary metrics include uptime gauge", metric_value(metrics, "app_uptime_seconds") is not None)
+    failures += expect("canary metrics chaos_active returns to 0", metric_value(metrics, "chaos_active") == 0.0)
 
     return failures
 

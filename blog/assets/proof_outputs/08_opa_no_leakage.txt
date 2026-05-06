@@ -1,0 +1,18 @@
+$ curl http://127.0.0.1:18181/health    # local CLI path
+HTTP/1.1 200 OK
+Content-Type: application/json
+Date: Wed, 06 May 2026 17:01:34 GMT
+Content-Length: 3
+
+{}
+
+$ curl http://127.0.0.1:18080/v1/data    # public nginx path must not expose OPA
+HTTP/1.1 404 Not Found
+Server: nginx/1.29.8
+Date: Wed, 06 May 2026 17:01:34 GMT
+Content-Type: application/json
+Content-Length: 22
+Connection: keep-alive
+X-Deployed-By: swiftdeploy
+
+{"detail":"Not Found"}

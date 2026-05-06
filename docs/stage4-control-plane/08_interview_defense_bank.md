@@ -223,3 +223,22 @@ This file tracks questions the operator must be able to answer without AI.
 - Why `--no-deps` on the promote restart?
 - Why use an `upstream` block in nginx instead of a direct `proxy_pass`?
 
+## Stage 4B Questions
+
+66. **Why add OPA instead of writing `if disk < 10` in the CLI?**
+    - The brief explicitly requires all allow/deny logic to live in OPA. The CLI is only the enforcement point: it gathers facts, asks OPA, prints the reason, and enforces the answer.
+
+67. **Why do thresholds live in the manifest-derived input instead of Rego?**
+    - Rego should describe the rule structure. Environment-specific limits are data. Passing thresholds in `input.thresholds` lets the operator change limits without editing policy source.
+
+68. **Why return an object instead of a boolean from OPA?**
+    - Operators need to know why a gate passed or failed. The object carries `allowed`, `reason`, `violations`, and observed values, so the CLI can surface a useful result.
+
+69. **Why is OPA bound to `127.0.0.1` on the host?**
+    - The CLI needs to query OPA, but public users should only see Nginx. A loopback-only host binding makes OPA reachable from the local tool and not from the public ingress path.
+
+70. **Why use Prometheus cumulative metrics?**
+    - That is the native model for counters and histograms. Rates and p99 latency are derived by comparing snapshots over a window, which is exactly what the status and policy helpers do.
+
+71. **Why is `/metrics` exempt from chaos?**
+    - The canary safety gate must observe bad behavior even while user traffic is degraded. If chaos breaks the metrics endpoint, the control loop becomes blind.

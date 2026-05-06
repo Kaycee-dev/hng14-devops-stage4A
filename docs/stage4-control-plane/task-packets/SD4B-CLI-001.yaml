@@ -1,0 +1,31 @@
+packet_id: SD4B-CLI-001
+objective: Implement policy-gated deploy/promote plus status and audit commands.
+scope_in:
+  - swiftdeploy
+  - swiftdeploy_lib/**
+  - scripts/capture_evidence.sh
+  - docs/stage4-control-plane/**
+  - journal/**
+concepts_to_explain:
+  - policy enforcement point versus policy decision point
+  - OPA failure modes
+  - JSONL audit trail
+decisions_to_record:
+  - failure-mode taxonomy
+  - history.jsonl and audit_report.md lifecycle
+implementation_steps:
+  - move complex CLI behavior into Python helpers behind the Bash entrypoint
+  - gate deploy and promote through OPA
+  - add status and audit commands
+verification_commands:
+  - ./swiftdeploy --help
+  - ./swiftdeploy status --once
+  - ./swiftdeploy audit
+evidence_to_capture:
+  - gated deploy/promote/status/audit outputs
+interview_questions:
+  - What happens when OPA is unavailable?
+done_when:
+  - lifecycle commands surface policy decisions clearly
+  - status writes history.jsonl
+  - audit_report.md renders as GitHub Markdown

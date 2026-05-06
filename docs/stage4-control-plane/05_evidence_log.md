@@ -431,3 +431,137 @@ Evidence ids are required before any gate can close.
 - Gate impact: no gate state changes. All previously closed gates remain closed.
   Submission gate stays `ready_for_operator_handoff`; the queued rebuild + recapture
   is the operator's last step before pushing to GitHub.
+
+## E-011 - Stage 4B governance packet set created
+
+- Date: `2026-05-06`
+- Scope: `SD4B-GOV-001`. Added Stage 4B task packets for governance, design, metrics, policy, CLI, proof, and blog work. Updated the checker packet inventory and created the same-day Stage 4B journal scaffold.
+- Files touched:
+  - `docs/stage4-control-plane/task-packets/SD4B-*.yaml`
+  - `scripts/control_plane_check.py`
+  - `journal/2026-05-06-stage4b.md`
+  - `.gitignore`
+- Verification command:
+  - `python scripts/control_plane_check.py`
+- Gate impact:
+  - Stage 4B governance gate can close.
+
+## E-012 - Stage 4B design choices recorded
+
+- Date: `2026-05-06`
+- Scope: `SD4B-DESIGN-001`. Recorded Stage 4B design decisions for the hybrid CLI wrapper, Prometheus metrics contract, OPA as the sole decision maker, manifest-derived thresholds, promote gating, and generated audit artifacts.
+- Decision references:
+  - D-016 through D-022.
+- Files touched:
+  - `docs/stage4-control-plane/01_brief_traceability.md`
+  - `docs/stage4-control-plane/02_execution_roadmap.md`
+  - `docs/stage4-control-plane/04_decisions_log.md`
+  - `docs/stage4-control-plane/06_test_strategy.md`
+  - `docs/stage4-control-plane/07_qa_checklist.md`
+  - `docs/stage4-control-plane/08_interview_defense_bank.md`
+  - `config/runtime_status.json`
+  - `CURRENT_TASK`
+- Verification command:
+  - `python scripts/control_plane_check.py`
+- Gate impact:
+  - Stage 4B design gate can close.
+
+## E-013 - Prometheus metrics endpoint implemented and smoke-tested
+
+- Date: `2026-05-06`
+- Scope: `SD4B-METRICS-001`. Added a FastAPI `/metrics` endpoint in Prometheus text format with request counters, latency histogram buckets, uptime, app mode, and chaos state gauges. Extended the smoke test to verify stable and canary metrics, including that `/metrics` remains reachable under error chaos.
+- Files touched:
+  - `app/main.py`
+  - `scripts/smoke_app.py`
+- Verification command and result:
+  - `.venv-app\Scripts\python.exe scripts\smoke_app.py` -> 0 failures.
+- Notable proof points:
+  - Stable mode exposes `app_mode 0` and `chaos_active 0`.
+  - Canary mode exposes `app_mode 1`.
+  - Error chaos exposes `chaos_active 2` while `/metrics` still returns 200 and `X-Mode: canary`.
+- Gate impact:
+  - Stage 4B implementation gate has first implementation evidence.
+
+## E-014 - OPA policies and Compose sidecar rendered and validated
+
+- Date: `2026-05-06`
+- Scope: `SD4B-POLICY-001`. Added manifest-owned OPA, policy, and observability fields; added separate infrastructure and canary Rego policy domains; rendered OPA into the generated Compose file as a loopback-only sidecar with `./policies:/policies:ro`.
+- Files touched:
+  - `manifest.yaml`
+  - `templates/docker-compose.tmpl`
+  - `policies/infrastructure.rego`
+  - `policies/canary.rego`
+  - `policies/README.md`
+  - `scripts/test_policies.py`
+  - `docker-compose.yml`
+- Verification commands and results:
+  - `python -m swiftdeploy_lib.cli init` -> regenerated `nginx.conf` and `docker-compose.yml`.
+  - `docker compose -f docker-compose.yml config --quiet` -> exit 0.
+  - `docker run --rm -v ${PWD}\policies:/policies:ro openpolicyagent/opa:1.16.1 check /policies` -> exit 0.
+  - `python scripts/test_policies.py` -> 0 failures.
+- Notable proof points:
+  - Compose contains `opa`, `openpolicyagent/opa:1.16.1`, `127.0.0.1:18181:8181`, and `./policies:/policies:ro`.
+  - Nginx still has only `location /` to the app upstream; no OPA route exists.
+  - Both Rego domains return decision objects with `allowed`, `reason`, and `violations`.
+- Gate impact:
+  - Stage 4B implementation gate now covers policy source and sidecar rendering.
+
+## E-015 - Stage 4B CLI gates, status, and audit verified
+
+- Date: `2026-05-06`
+- Scope: `SD4B-CLI-001`. Replaced the large Bash implementation with a small Bash entrypoint plus `swiftdeploy_lib` Python helpers for rendering, validation, OPA calls, metrics parsing, status history, and audit report rendering.
+- Files touched:
+  - `swiftdeploy`
+  - `swiftdeploy_lib/**`
+  - `scripts/capture_evidence.sh`
+- Verification commands and results:
+  - `python -m swiftdeploy_lib.cli --help` -> listed `init`, `validate`, `deploy`, `promote`, `teardown`, `status`, and `audit`.
+  - `docker build -t swiftdeploy-stage4b-app:1.0.0 .` -> succeeded.
+  - `python -m swiftdeploy_lib.cli validate` -> all 5 checks passed after D-023.
+  - `python -m swiftdeploy_lib.cli deploy` -> OPA health passed, infrastructure policy passed, app/nginx healthy.
+  - `python -m swiftdeploy_lib.cli status --once` -> printed metrics and policy compliance, appended `history.jsonl`.
+  - `python -m swiftdeploy_lib.cli promote canary` -> canary policy passed, app recreated, canary confirmed.
+  - Error chaos plus `python -m swiftdeploy_lib.cli promote stable` -> canary policy denied and manifest was not changed.
+  - `python -m swiftdeploy_lib.cli audit` -> wrote `audit_report.md`.
+  - Direct OPA health on `127.0.0.1:18181` returned 200; Nginx `/v1/data` returned app 404, proving no ingress leakage.
+- Bugs caught and fixed:
+  - Standalone `nginx -t` could not resolve Compose hostname `app`; validator now adds a host entry for syntax-only checks (D-023).
+  - OPA startup disconnect produced a traceback; health checks now report a named failure mode (D-024).
+- Gate impact:
+  - Stage 4B implementation gate can close.
+
+## E-016 - Stage 4B proof bundle refreshed
+
+- Date: `2026-05-06`
+- Scope: `SD4B-PROOF-001`. Updated and ran `scripts/capture_evidence.sh` with Git Bash. The script clears stale proof text files, rebuilds the image, runs policy denial and success paths, records status/history, generates the audit report, captures no-leakage proof, and proves teardown/regeneration.
+- Verification command and result:
+  - `C:\Program Files\Git\bin\bash.exe scripts/capture_evidence.sh` -> wrote 11 Stage 4B proof files.
+- Proof files:
+  - `01_validate.txt`
+  - `02_predeploy_policy_denial.txt`
+  - `03_deploy_and_metrics.txt`
+  - `04_status_history.txt`
+  - `05_promote_canary.txt`
+  - `06_promote_denied_under_chaos.txt`
+  - `07_promote_stable.txt`
+  - `08_opa_no_leakage.txt`
+  - `09_audit_report.txt`
+  - `10_generated_configs.txt`
+  - `11_teardown_and_regen.txt`
+- Gate impact:
+  - Stage 4B proof gate can close.
+
+## E-017 - Stage 4B article and diagrams updated
+
+- Date: `2026-05-06`
+- Scope: `SD4B-BLOG-001`. Updated the Stage 4B article draft and added diagrams for the OPA/metrics architecture and policy gate sequence. README now documents Stage 4B behavior and the proof bundle.
+- Files touched:
+  - `README.md`
+  - `blog/devto/swiftdeploy-stage4b.md`
+  - `blog/diagrams/stage4b_architecture.md`
+  - `blog/diagrams/policy_gate_flow.md`
+  - `blog/assets/proof_outputs/README.md`
+- Verification:
+  - Claims point at refreshed Stage 4B proof output files from E-016.
+- Gate impact:
+  - Stage 4B blog gate can close.

@@ -1,0 +1,33 @@
+packet_id: SD4B-GOV-001
+objective: Extend the Stage 4 control plane for Stage 4B before feature implementation.
+scope_in:
+  - config/runtime_status.json
+  - CURRENT_TASK
+  - scripts/control_plane_check.py
+  - docs/stage4-control-plane/**
+  - journal/**
+scope_out:
+  - app/**
+  - swiftdeploy
+  - templates/**
+  - policies/**
+concepts_to_explain:
+  - preserving Stage 4A evidence while opening Stage 4B work
+  - treating policy and observability as governed slices
+decisions_to_record:
+  - Stage 4B packet sequence
+  - Stage 4B gate names
+implementation_steps:
+  - add Stage 4B task packets
+  - update control-plane checker packet inventory
+  - update roadmap, QA, defense bank, traceability, and journal
+verification_commands:
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - control-plane checker output after the 4B packet set exists
+interview_questions:
+  - Why did you create new packets instead of editing Stage 4A packets in place?
+done_when:
+  - Stage 4B packet inventory is present
+  - control-plane checker knows the Stage 4B packets
+  - governance evidence is recorded

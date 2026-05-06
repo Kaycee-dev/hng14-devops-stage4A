@@ -1,0 +1,25 @@
+packet_id: SD4B-PROOF-001
+objective: Capture Stage 4B end-to-end proof for the grader and operator defense.
+scope_in:
+  - blog/assets/proof_outputs/**
+  - scripts/capture_evidence.sh
+  - README.md
+  - docs/stage4-control-plane/**
+  - journal/**
+concepts_to_explain:
+  - evidence-backed submission
+  - failure evidence as proof of guardrails
+implementation_steps:
+  - refresh capture script for Stage 4B outputs
+  - collect policy gate, status, audit, and leakage proof
+  - update README proof map
+verification_commands:
+  - bash scripts/capture_evidence.sh
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - proof output file map
+interview_questions:
+  - Which artifact proves the hard gate works?
+done_when:
+  - proof outputs cover every Stage 4B submission criterion
+  - README points at the new evidence bundle

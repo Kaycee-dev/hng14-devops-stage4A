@@ -59,6 +59,28 @@ services:
     # upstream nginx image symlinks access.log/error.log to stdout/stderr.
     # Mounting over it would break `docker compose logs nginx`.
 
+  opa:
+    image: ${OPA_IMAGE}
+    container_name: swiftdeploy-opa
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=info
+      - /policies
+    ports:
+      - "127.0.0.1:${OPA_PORT}:8181"
+    networks:
+      - ${NETWORK_NAME}
+    restart: ${RESTART_POLICY}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    volumes:
+      - ./policies:/policies:ro
+
 networks:
   ${NETWORK_NAME}:
     name: ${NETWORK_NAME}

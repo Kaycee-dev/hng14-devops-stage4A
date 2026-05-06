@@ -1,0 +1,22 @@
+$ set policy.infrastructure.min_disk_free_gb to 1000000
+$ ./swiftdeploy deploy    # expect policy denial before app/nginx start
+ Network swiftdeploy-net Creating 
+ Network swiftdeploy-net Created 
+ Container swiftdeploy-opa Creating 
+ Container swiftdeploy-opa Created 
+ Container swiftdeploy-opa Starting 
+ Container swiftdeploy-opa Started 
+[FAIL] deploy blocked by policy; app and nginx were not started
+swiftdeploy deploy: rendering and starting policy sidecar
+swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
+rendered nginx.conf <- templates\nginx.conf.tmpl
+rendered docker-compose.yml <- templates\docker-compose.tmpl
+OK: nginx.conf and docker-compose.yml regenerated.
+swiftdeploy policy: starting OPA sidecar
+[PASS] OPA health check passed
+swiftdeploy deploy: querying pre-deploy policy
+[FAIL] policy/infrastructure: infrastructure policy denied: 1 violation(s)
+  - disk_free_too_low: disk free 121.588GB is below required 1e+06GB
+expected deploy denial exit=1
+
+$ restore policy.infrastructure.min_disk_free_gb to 10

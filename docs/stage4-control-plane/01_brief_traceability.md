@@ -24,6 +24,27 @@ Every requirement from the official brief must have a planned source, behavior, 
 | Images are under 300 MB | Docker image selection and build verification | `docker images` size check | README proof |
 | Teardown removes stack and `--clean` deletes generated configs | CLI teardown behavior | File and container checks | README teardown section |
 
+## Stage 4B Traceability
+
+| Requirement | Planned source or behavior | Verification | Submission proof |
+|---|---|---|---|
+| API exposes `/metrics` in Prometheus text format | FastAPI metrics middleware and `/metrics` route | `python scripts/smoke_app.py`, curl through nginx | Status/proof output and README |
+| Track request throughput/errors | `http_requests_total{method,path,status_code}` counter | Smoke test checks labels and values | `/metrics` screenshot/text capture |
+| Track latency histogram | `http_request_duration_seconds` with Prometheus default buckets | Smoke test and CLI parser checks | Status output showing p99 |
+| Track uptime, mode, and chaos state | `app_uptime_seconds`, `app_mode`, `chaos_active` gauges | Stable/canary smoke checks | Status output and blog chaos section |
+| OPA sidecar in generated Compose | `templates/docker-compose.tmpl` renders `opa` service | `docker compose config --quiet`, generated config proof | Generated config screenshot |
+| OPA reachable by CLI but not public ingress | Host binding is `127.0.0.1:${opa.port}:8181`; nginx has no OPA route | Curl OPA directly succeeds; curl via nginx `/v1/data` does not expose OPA | No-leakage proof |
+| CLI does not decide allow/deny | CLI sends facts to OPA and enforces returned decision objects | Policy denial and allow evidence | Deploy/promote proof |
+| Policies load from `policies/` | OPA service mounts `./policies:/policies:ro` and runs server on that directory | Compose config and OPA policy query | Generated config proof |
+| Thresholds not hardcoded in Rego | Rego reads `input.thresholds`; CLI derives thresholds from manifest | Rego tests with changed thresholds | Policy proof |
+| Independent policy domains | `infrastructure.rego` and `canary.rego` expose separate decision questions | Query each package independently | Status compliance list |
+| Pre-deploy and pre-promote inputs differ | Host stats go to infrastructure; metrics window goes to canary | CLI evidence shows distinct input summaries | Deploy/promote proof |
+| OPA output is not bare boolean | Rego returns `{domain, question, allowed, reason, violations}` | Rego and CLI output checks | Operator screenshots |
+| OPA failure modes are human-readable | Python OPA client maps unavailable, timeout, unhealthy, policy error, malformed response, and deny | Injected/observed failure captures | Defense bank and proof |
+| `status` dashboard | CLI scrapes metrics, computes req/s and p99, queries compliance, appends JSONL | `./swiftdeploy status --once` and live run | Status proof and `history.jsonl` |
+| `audit` report | CLI parses `history.jsonl` and writes GitHub Markdown `audit_report.md` | `./swiftdeploy audit`, markdown inspection | Audit proof |
+| Blog covers design, guardrails, chaos, lessons | Stage 4B article draft updated after proof refresh | Manual preview | Published blog link |
+
 Issues settled in `SD4-DESIGN-001` (see `04_decisions_log.md`):
 
 - API stack: Python 3.11 + FastAPI + uvicorn (D-004).
@@ -37,4 +58,3 @@ Issues settled in `SD4-DESIGN-001` (see `04_decisions_log.md`):
 - Port pre-flight: pure Python `socket.bind()` (D-012).
 - Nginx syntax check: containerized `nginx -t` against the same image we deploy (D-013).
 - Portability contract: Bash 4+, Docker 20+ with Compose v2, Python 3.8+ with pyyaml, LF line endings (D-014).
-

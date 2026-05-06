@@ -1,0 +1,68 @@
+$ ./swiftdeploy deploy
+ Container swiftdeploy-opa Running 
+ Volume swiftdeploy-logs Creating 
+ Volume swiftdeploy-logs Created 
+ Container swiftdeploy-app Creating 
+ Container swiftdeploy-app Created 
+ Container swiftdeploy-nginx Creating 
+ Container swiftdeploy-nginx Created 
+ Container swiftdeploy-app Starting 
+ Container swiftdeploy-app Started 
+ Container swiftdeploy-app Waiting 
+ Container swiftdeploy-app Healthy 
+ Container swiftdeploy-nginx Starting 
+ Container swiftdeploy-nginx Started 
+swiftdeploy deploy: rendering and starting policy sidecar
+swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
+rendered nginx.conf <- templates\nginx.conf.tmpl
+rendered docker-compose.yml <- templates\docker-compose.tmpl
+OK: nginx.conf and docker-compose.yml regenerated.
+swiftdeploy policy: starting OPA sidecar
+[PASS] OPA health check passed
+swiftdeploy deploy: querying pre-deploy policy
+[PASS] policy/infrastructure: infrastructure policy passed
+swiftdeploy deploy: docker compose up -d app nginx
+swiftdeploy deploy: waiting up to 60s for /healthz via nginx...
+  health ok at t=1s
+deploy: stack healthy
+
+$ curl -i http://127.0.0.1:18080/metrics
+HTTP/1.1 200 OK
+Server: nginx/1.29.8
+Date: Wed, 06 May 2026 17:01:01 GMT
+Content-Type: text/plain; version=0.0.4; charset=utf-8
+Content-Length: 1945
+Connection: keep-alive
+X-Deployed-By: swiftdeploy
+
+# HELP http_requests_total Total HTTP requests by method, path, and status code.
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/healthz",status_code="200"} 2
+# HELP http_request_duration_seconds HTTP request latency histogram in seconds.
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.005"} 1
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.01"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.025"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.05"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.075"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.1"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.25"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.5"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="0.75"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="1"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="2.5"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="5"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="7.5"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="10"} 2
+http_request_duration_seconds_bucket{method="GET",path="/healthz",le="+Inf"} 2
+http_request_duration_seconds_sum{method="GET",path="/healthz"} 0.006509312
+http_request_duration_seconds_count{method="GET",path="/healthz"} 2
+# HELP app_uptime_seconds Process uptime in seconds.
+# TYPE app_uptime_seconds gauge
+app_uptime_seconds 4.663
+# HELP app_mode Current deployment mode, stable=0 and canary=1.
+# TYPE app_mode gauge
+app_mode 0
+# HELP chaos_active Current chaos state, none=0 slow=1 error=2.
+# TYPE chaos_active gauge
+chaos_active 0

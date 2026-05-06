@@ -3,11 +3,11 @@
 
 services:
   app:
-    image: swiftdeploy-stage4a-app:1.0.0
+    image: swiftdeploy-stage4b-app:1.0.0
     container_name: swiftdeploy-app
     environment:
       MODE: stable
-      APP_VERSION: 1.0.0
+      APP_VERSION: 1.1.0
       APP_PORT: "3000"
     networks:
       - swiftdeploy-net
@@ -58,6 +58,28 @@ services:
     # Note: /var/log/nginx is intentionally NOT volume-mounted here; the
     # upstream nginx image symlinks access.log/error.log to stdout/stderr.
     # Mounting over it would break `docker compose logs nginx`.
+
+  opa:
+    image: openpolicyagent/opa:1.16.1
+    container_name: swiftdeploy-opa
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=info
+      - /policies
+    ports:
+      - "127.0.0.1:18181:8181"
+    networks:
+      - swiftdeploy-net
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    volumes:
+      - ./policies:/policies:ro
 
 networks:
   swiftdeploy-net:

@@ -24,12 +24,14 @@ REQUIRED_FILES = [
     "docs/stage4-control-plane/08_interview_defense_bank.md",
     "docs/stage4-control-plane/09_blog_and_diagram_plan.md",
     "blog/devto/swiftdeploy-stage4.md",
+    "blog/devto/swiftdeploy-stage4b.md",
     "blog/diagrams/README.md",
     "blog/assets/README.md",
     "journal/2026-05-03-stage4-governance.md",
+    "journal/2026-05-06-stage4b.md",
 ]
 
-TASK_PACKETS = [
+STAGE4A_TASK_PACKETS = [
     "SD4-GOV-001",
     "SD4-DESIGN-001",
     "SD4-APP-001",
@@ -40,6 +42,18 @@ TASK_PACKETS = [
     "SD4-PROOF-001",
     "SD4-BLOG-001",
 ]
+
+STAGE4B_TASK_PACKETS = [
+    "SD4B-GOV-001",
+    "SD4B-DESIGN-001",
+    "SD4B-METRICS-001",
+    "SD4B-POLICY-001",
+    "SD4B-CLI-001",
+    "SD4B-PROOF-001",
+    "SD4B-BLOG-001",
+]
+
+TASK_PACKETS = STAGE4A_TASK_PACKETS + STAGE4B_TASK_PACKETS
 
 FORBIDDEN_IMPLEMENTATION_PATHS = [
     "manifest.yaml",

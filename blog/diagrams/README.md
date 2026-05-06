@@ -13,3 +13,7 @@ Planned diagrams:
 - security hardening model
 - validation gate matrix
 
+Stage 4B additions:
+
+- `stage4b_architecture.md`
+- `policy_gate_flow.md`

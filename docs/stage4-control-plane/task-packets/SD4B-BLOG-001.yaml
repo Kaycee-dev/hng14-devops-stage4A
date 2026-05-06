@@ -1,0 +1,27 @@
+packet_id: SD4B-BLOG-001
+objective: Update the technical article and diagrams for Stage 4B observability, policy, chaos, and audit.
+scope_in:
+  - blog/**
+  - README.md
+  - docs/stage4-control-plane/09_blog_and_diagram_plan.md
+  - docs/stage4-control-plane/**
+  - journal/**
+scope_out:
+  - publishing through an API
+concepts_to_explain:
+  - manifest-driven infrastructure generation
+  - OPA guardrails
+  - chaos evidence and audit reporting
+implementation_steps:
+  - update article draft for Stage 4B
+  - add/update architecture and policy diagrams
+  - keep claims tied to proof outputs
+verification_commands:
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - article path and diagram set
+interview_questions:
+  - How does the article prove you understand OPA and metrics?
+done_when:
+  - article is ready for manual publishing
+  - claims match current runtime status and evidence

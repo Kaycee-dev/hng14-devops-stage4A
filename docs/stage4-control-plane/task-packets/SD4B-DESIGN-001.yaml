@@ -1,0 +1,36 @@
+packet_id: SD4B-DESIGN-001
+objective: Settle Stage 4B design choices for metrics, OPA policy, CLI helpers, status, audit, and evidence.
+scope_in:
+  - docs/stage4-control-plane/**
+  - config/runtime_status.json
+  - CURRENT_TASK
+  - journal/**
+scope_out:
+  - app/**
+  - swiftdeploy
+  - templates/**
+  - policies/**
+concepts_to_explain:
+  - OPA as policy decision point
+  - CLI as policy enforcement point
+  - cumulative Prometheus metrics and derived window calculations
+decisions_to_record:
+  - hybrid Bash wrapper plus Python helper package
+  - manifest-derived policy thresholds
+  - all promotes are policy-gated
+  - OPA localhost-only host exposure
+implementation_steps:
+  - record Stage 4B architecture and tradeoffs
+  - map each 4B brief requirement to planned source and proof
+  - update test strategy and defense bank
+verification_commands:
+  - python scripts/control_plane_check.py
+evidence_to_capture:
+  - design gate checker output
+interview_questions:
+  - Why must the CLI not decide allow or deny locally?
+  - Why do thresholds live outside Rego?
+done_when:
+  - design decisions are recorded
+  - traceability covers all Stage 4B requirements
+  - implementation can proceed under the 4B packet sequence
