@@ -61,30 +61,46 @@
       "evidence": [
         "E-013",
         "E-014",
-        "E-015"
+        "E-015",
+        "E-018",
+        "E-019",
+        "E-020",
+        "E-021"
       ]
     },
     "stage4b_proof": {
       "status": "closed",
       "evidence": [
-        "E-016"
+        "E-016",
+        "E-019",
+        "E-020",
+        "E-021"
       ]
     },
     "stage4b_blog": {
       "status": "closed",
       "evidence": [
-        "E-017"
+        "E-017",
+        "E-022",
+        "E-023"
       ]
     },
     "stage4b_submission": {
       "status": "ready_for_operator_handoff",
-      "evidence": []
+      "evidence": [
+        "E-018",
+        "E-019",
+        "E-020",
+        "E-021",
+        "E-022",
+        "E-023"
+      ]
     }
   },
   "verification": {
     "control_plane_check": "passed",
     "last_run": "2026-05-06",
-    "summary": "Stage 4B implementation, proof capture, and article updates completed. Operator should screenshot proof_outputs/*.txt and submit before 2026-05-08T11:59 WAT."
+    "summary": "Stage 4B grading-prep audit remediation completed (E-018 through E-023). All implementation files committed, Python buffering fixed and proofs re-captured (13 files), CPU and nginx log proofs added, blog article expanded, 30-second window documented."
   },
   "screenshots": {
     "validate_output": "blog/assets/proof_outputs/01_validate.txt",
@@ -100,7 +116,7 @@
     "teardown_regen": "blog/assets/proof_outputs/11_teardown_and_regen.txt"
   },
   "blog": {
-    "status": "stage4b_draft_ready_to_publish",
+    "status": "stage4b_article_expanded",
     "draft": "blog/devto/swiftdeploy-stage4.md",
     "stage4b_draft": "blog/devto/swiftdeploy-stage4b.md",
     "diagrams": [
@@ -112,5 +128,5 @@
     ],
     "publish_route": "manual_dev_to_after_final_verification"
   },
-  "next_exact_step": "Operator: screenshot blog/assets/proof_outputs/*.txt, publish/link the Stage 4B article, push the public repo, and submit the form before 2026-05-08 11:59 WAT."
+  "next_exact_step": "Operator checklist: (a) re-run scripts/capture_evidence.sh with Docker running if any proof files were modified since last run (already done 2026-05-06); (b) publish the Stage 4B blog article on Dev.to and paste the URL in the submission form; (c) git push to public repo; (d) submit the form before 2026-05-08 11:59 WAT."
 }

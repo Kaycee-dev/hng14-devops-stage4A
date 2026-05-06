@@ -242,3 +242,6 @@ This file tracks questions the operator must be able to answer without AI.
 
 71. **Why is `/metrics` exempt from chaos?**
     - The canary safety gate must observe bad behavior even while user traffic is degraded. If chaos breaks the metrics endpoint, the control loop becomes blind.
+
+72. **The brief says "over the last 30 seconds." How do you calculate the 30-second error rate for pre-promote?**
+    - The implementation uses a live two-snapshot window, not a rolling 30-second average. The CLI takes a first metrics scrape, makes several `/healthz` pings (approximately 5 × 200 ms), then takes a second scrape. The delta in `http_requests_total` and the error fraction of that delta is what OPA evaluates. The window is ~1–1.3 seconds in practice. The `policy_window_target_seconds=30` field is logged in `history.jsonl` for audit purposes but is not enforced as a gate condition. The trade-off: a live window provides an immediate signal with no dependency on continuous `status` polling history; the downside is that a bursty error spike that finished more than 1–2 seconds before the promote command starts would not block promotion. Operators who want a full 30-second confidence window should run `swiftdeploy status` for ≥30 seconds before promoting; the rolling scrape history in `history.jsonl` then captures that period.

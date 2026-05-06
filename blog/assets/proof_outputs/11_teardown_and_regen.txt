@@ -1,21 +1,21 @@
 $ ./swiftdeploy teardown --clean
- Container swiftdeploy-nginx Stopping 
+swiftdeploy teardown: docker compose down -v --remove-orphans
  Container swiftdeploy-opa Stopping 
+ Container swiftdeploy-nginx Stopping 
  Container swiftdeploy-opa Stopped 
  Container swiftdeploy-opa Removing 
+ Container swiftdeploy-opa Removed 
  Container swiftdeploy-nginx Stopped 
  Container swiftdeploy-nginx Removing 
- Container swiftdeploy-opa Removed 
  Container swiftdeploy-nginx Removed 
  Container swiftdeploy-app Stopping 
  Container swiftdeploy-app Stopped 
  Container swiftdeploy-app Removing 
  Container swiftdeploy-app Removed 
- Network swiftdeploy-net Removing 
  Volume swiftdeploy-logs Removing 
+ Network swiftdeploy-net Removing 
  Volume swiftdeploy-logs Removed 
  Network swiftdeploy-net Removed 
-swiftdeploy teardown: docker compose down -v --remove-orphans
 swiftdeploy teardown --clean: removing generated configs
   removed: nginx.conf
   removed: docker-compose.yml

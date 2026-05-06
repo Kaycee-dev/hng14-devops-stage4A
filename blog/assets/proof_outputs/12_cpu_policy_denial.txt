@@ -1,5 +1,5 @@
-$ set policy.infrastructure.min_disk_free_gb to 1000000
-$ ./swiftdeploy deploy    # expect policy denial before app/nginx start
+$ set policy.infrastructure.max_cpu_load to -1.0 (forces denial: cpu_load=0.0 > -1.0)
+$ ./swiftdeploy deploy   # expect CPU policy denial
 swiftdeploy deploy: rendering and starting policy sidecar
 swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
 rendered nginx.conf <- templates\nginx.conf.tmpl
@@ -15,8 +15,8 @@ swiftdeploy policy: starting OPA sidecar
 [PASS] OPA health check passed
 swiftdeploy deploy: querying pre-deploy policy
 [FAIL] policy/infrastructure: infrastructure policy denied: 1 violation(s)
-  - disk_free_too_low: disk free 121.359GB is below required 1e+06GB
+  - cpu_load_too_high: cpu load 0 is above allowed -1
 [FAIL] deploy blocked by policy; app and nginx were not started
-expected deploy denial exit=1
+expected cpu denial exit=1
 
-$ restore policy.infrastructure.min_disk_free_gb to 10
+$ restore policy.infrastructure.max_cpu_load to 2.0

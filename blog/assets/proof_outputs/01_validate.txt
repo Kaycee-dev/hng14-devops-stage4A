@@ -6,51 +6,53 @@ $ docker build -t swiftdeploy-stage4b-app:1.0.0 .
 #1 DONE 0.0s
 
 #2 [internal] load metadata for docker.io/library/python:3.11-slim
-#2 DONE 2.1s
+#2 ...
 
-#3 [internal] load .dockerignore
-#3 transferring context: 327B 0.0s done
+#3 [auth] library/python:pull token for registry-1.docker.io
 #3 DONE 0.0s
 
-#4 [internal] load build context
+#2 [internal] load metadata for docker.io/library/python:3.11-slim
+#2 DONE 7.5s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 327B done
 #4 DONE 0.0s
 
 #5 [1/6] FROM docker.io/library/python:3.11-slim@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2
-#5 resolve docker.io/library/python:3.11-slim@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2 0.1s done
-#5 DONE 0.1s
+#5 resolve docker.io/library/python:3.11-slim@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2 0.0s done
+#5 DONE 0.0s
 
-#4 [internal] load build context
-#4 transferring context: 218B 0.0s done
-#4 DONE 0.1s
+#6 [internal] load build context
+#6 transferring context: 218B done
+#6 DONE 0.0s
 
-#6 [2/6] WORKDIR /app
-#6 CACHED
-
-#7 [3/6] COPY app/requirements.txt /app/requirements.txt
+#7 [4/6] RUN pip install --no-cache-dir -r /app/requirements.txt
 #7 CACHED
 
-#8 [4/6] RUN pip install --no-cache-dir -r /app/requirements.txt
+#8 [5/6] COPY app/ /app/
 #8 CACHED
 
-#9 [5/6] COPY app/ /app/
+#9 [3/6] COPY app/requirements.txt /app/requirements.txt
 #9 CACHED
 
-#10 [6/6] RUN groupadd --gid 10001 appuser     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin appuser     && chown -R appuser:appuser /app
+#10 [2/6] WORKDIR /app
 #10 CACHED
 
-#11 exporting to image
-#11 exporting layers 0.0s done
-#11 exporting manifest sha256:ba971f9f3b86236a40e435450dd2155d842137e5df73e4691a0b1fe51a1789ef 0.0s done
-#11 exporting config sha256:face702a45f57d7ee410553a9cdda88658cc3e7b40d3a7bb510b772b499d622f done
-#11 exporting attestation manifest sha256:34a824e1ce09af0d724cc7d17a1700b8cc89457a5474b04bce96f12ef2974439
-#11 exporting attestation manifest sha256:34a824e1ce09af0d724cc7d17a1700b8cc89457a5474b04bce96f12ef2974439 0.1s done
-#11 exporting manifest list sha256:5aebea21f14c9fbf66f6eb02526eb1b7094f1a3d269c6cc7d0457fb45cf32f6b
-#11 exporting manifest list sha256:5aebea21f14c9fbf66f6eb02526eb1b7094f1a3d269c6cc7d0457fb45cf32f6b 0.1s done
-#11 naming to docker.io/library/swiftdeploy-stage4b-app:1.0.0 done
-#11 unpacking to docker.io/library/swiftdeploy-stage4b-app:1.0.0 0.0s done
-#11 DONE 0.5s
+#11 [6/6] RUN groupadd --gid 10001 appuser     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin appuser     && chown -R appuser:appuser /app
+#11 CACHED
 
-View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/vjs9qg4ni1x600wjq74bn035y
+#12 exporting to image
+#12 exporting layers done
+#12 exporting manifest sha256:ba971f9f3b86236a40e435450dd2155d842137e5df73e4691a0b1fe51a1789ef done
+#12 exporting config sha256:face702a45f57d7ee410553a9cdda88658cc3e7b40d3a7bb510b772b499d622f done
+#12 exporting attestation manifest sha256:032a34e4333c78e3c5c00021950ecf34acb351f8ef9d3a1c2d536c7cf7d8b749
+#12 exporting attestation manifest sha256:032a34e4333c78e3c5c00021950ecf34acb351f8ef9d3a1c2d536c7cf7d8b749 0.0s done
+#12 exporting manifest list sha256:88a804bd76de2015d1ffc5605deddbd108d72496854f55f07d1db367cd5d1481 0.0s done
+#12 naming to docker.io/library/swiftdeploy-stage4b-app:1.0.0 done
+#12 unpacking to docker.io/library/swiftdeploy-stage4b-app:1.0.0 done
+#12 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/t76mw22g6v21qpr8hl7yojmqe
 
 $ ./swiftdeploy init
 swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml

@@ -3,6 +3,7 @@
 # screenshot-ready proof files under blog/assets/proof_outputs/.
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
 OUT="${ROOT}/blog/assets/proof_outputs"
@@ -31,6 +32,19 @@ text = open(path, "r", encoding="utf-8").read()
 new, n = re.subn(r"(?m)^(\s*min_disk_free_gb:\s*)\S+", lambda m: m.group(1) + target, text, count=1)
 if n != 1:
     raise SystemExit("could not update policy.infrastructure.min_disk_free_gb")
+open(path, "w", encoding="utf-8", newline="\n").write(new)
+PY
+}
+
+set_cpu_threshold() {
+    python - "$1" <<'PY'
+import re, sys
+path = "manifest.yaml"
+target = sys.argv[1]
+text = open(path, "r", encoding="utf-8").read()
+new, n = re.subn(r"(?m)^(\s*max_cpu_load:\s*)\S+", lambda m: m.group(1) + target, text, count=1)
+if n != 1:
+    raise SystemExit("could not update policy.infrastructure.max_cpu_load")
 open(path, "w", encoding="utf-8", newline="\n").write(new)
 PY
 }
@@ -118,6 +132,12 @@ echo "wrote ${OUT}/06_promote_denied_under_chaos.txt"
 echo "wrote ${OUT}/07_promote_stable.txt"
 
 {
+    echo "$ docker compose -f docker-compose.yml logs nginx --tail=30"
+    docker compose -f docker-compose.yml logs nginx --tail=30
+} > "${OUT}/13_nginx_access_log.txt" 2>&1
+echo "wrote ${OUT}/13_nginx_access_log.txt"
+
+{
     echo "$ curl http://127.0.0.1:${OPA_PORT}/health    # local CLI path"
     curl -i -s "http://127.0.0.1:${OPA_PORT}/health"
     echo
@@ -161,6 +181,20 @@ echo "wrote ${OUT}/10_generated_configs.txt"
     ls nginx.conf docker-compose.yml history.jsonl audit_report.md
 } > "${OUT}/11_teardown_and_regen.txt" 2>&1
 echo "wrote ${OUT}/11_teardown_and_regen.txt"
+
+{
+    # On Windows, os.getloadavg() is unavailable so cpu_load is always 0.0.
+    # Set max_cpu_load to -1.0 so that 0.0 > -1.0 fires the CPU denial rule.
+    # On Linux a threshold of 0.0 is sufficient; -1.0 is the cross-platform proof value.
+    echo "$ set policy.infrastructure.max_cpu_load to -1.0 (forces denial: cpu_load=0.0 > -1.0)"
+    set_cpu_threshold -1.0
+    echo "$ ./swiftdeploy deploy   # expect CPU policy denial"
+    ./swiftdeploy deploy || echo "expected cpu denial exit=$?"
+    echo
+    echo "$ restore policy.infrastructure.max_cpu_load to 2.0"
+    set_cpu_threshold 2.0
+} > "${OUT}/12_cpu_policy_denial.txt" 2>&1
+echo "wrote ${OUT}/12_cpu_policy_denial.txt"
 
 echo
 echo "Capture complete. Files in ${OUT}:"

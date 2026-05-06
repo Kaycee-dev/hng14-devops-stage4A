@@ -59,3 +59,15 @@
 - [x] `audit` writes clean GitHub Markdown (E-015).
 - [x] Stage 4B proof outputs are refreshed (E-016).
 - [x] Stage 4B article draft is updated from evidence (E-017).
+
+## Stage 4B Grading-Prep Audit Remediation
+
+- [x] All Stage 4B files committed to git — no untracked implementation files remain (E-018, commit 0ee50e4).
+- [x] `PYTHONUNBUFFERED=1` added to `scripts/capture_evidence.sh`; proof outputs re-captured showing correct event order (E-019).
+- [x] CPU policy denial proof captured as `12_cpu_policy_denial.txt` — Windows adaptation uses threshold `-1.0` so `cpu_load=0.0 > -1.0` fires the deny rule (E-020).
+- [x] Nginx access log proof captured as `13_nginx_access_log.txt` — mandated `$time_iso8601 | $status | ${request_time}s | $upstream_addr | $request` format verified (E-021).
+- [x] Blog article expanded with ARCHITECTURE (Mermaid diagram), DESIGN (manifest/template flow), GUARDRAILS (Rego snippet + input construction), CHAOS (verbatim terminal output), REPLICATION (10 steps), LESSONS LEARNED (4 lessons) (E-022).
+- [x] 30-second pre-promote window trade-off documented in README NOTE, blog lesson (b), interview defense bank Q72, and decisions log D-025 (E-023).
+- [ ] Blog article published on Dev.to (manual operator step).
+- [ ] Public repo pushed (manual operator step).
+- [ ] Submission form submitted before 2026-05-08 11:59 WAT (manual operator step).

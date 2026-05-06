@@ -1,0 +1,31 @@
+$ docker compose -f docker-compose.yml logs nginx --tail=30
+swiftdeploy-nginx  | 2026/05/06 18:37:05 [error] 21#21: *19 connect() failed (111: Connection refused) while connecting to upstream, client: 172.18.0.1, server: _, request: "GET /healthz HTTP/1.1", upstream: "http://172.18.0.3:3000/healthz", host: "127.0.0.1:18080"
+swiftdeploy-nginx  | 2026-05-06T18:37:05+00:00 | 502 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026/05/06 18:37:06 [error] 21#21: *21 connect() failed (111: Connection refused) while connecting to upstream, client: 172.18.0.1, server: _, request: "GET /healthz HTTP/1.1", upstream: "http://172.18.0.3:3000/healthz", host: "127.0.0.1:18080"
+swiftdeploy-nginx  | 2026-05-06T18:37:06+00:00 | 502 | 0.000s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:08+00:00 | 200 | 0.008s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:08+00:00 | 200 | 0.001s | 172.18.0.3:3000 | GET / HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:08+00:00 | 200 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:08+00:00 | 200 | 0.002s | 172.18.0.3:3000 | POST /chaos HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:09+00:00 | 200 | 0.002s | 172.18.0.3:3000 | GET /metrics HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:09+00:00 | 500 | 0.002s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:09+00:00 | 500 | 0.003s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:09+00:00 | 500 | 0.002s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:09+00:00 | 500 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:10+00:00 | 500 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:10+00:00 | 200 | 0.004s | 172.18.0.3:3000 | GET /metrics HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:10+00:00 | 200 | 0.001s | 172.18.0.3:3000 | POST /chaos HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:11+00:00 | 200 | 0.003s | 172.18.0.3:3000 | GET /metrics HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:11+00:00 | 200 | 0.002s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:11+00:00 | 200 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:11+00:00 | 200 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:11+00:00 | 200 | 0.003s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:12+00:00 | 200 | 0.002s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:12+00:00 | 200 | 0.002s | 172.18.0.3:3000 | GET /metrics HTTP/1.1
+swiftdeploy-nginx  | 2026/05/06 18:37:13 [error] 22#22: *44 connect() failed (111: Connection refused) while connecting to upstream, client: 172.18.0.1, server: _, request: "GET /healthz HTTP/1.1", upstream: "http://172.18.0.3:3000/healthz", host: "127.0.0.1:18080"
+swiftdeploy-nginx  | 2026-05-06T18:37:13+00:00 | 502 | 0.000s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:14+00:00 | 502 | 0.001s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026/05/06 18:37:14 [error] 22#22: *46 connect() failed (111: Connection refused) while connecting to upstream, client: 172.18.0.1, server: _, request: "GET /healthz HTTP/1.1", upstream: "http://172.18.0.3:3000/healthz", host: "127.0.0.1:18080"
+swiftdeploy-nginx  | 2026-05-06T18:37:15+00:00 | 200 | 0.010s | 172.18.0.3:3000 | GET /healthz HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:15+00:00 | 200 | 0.001s | 172.18.0.3:3000 | GET / HTTP/1.1
+swiftdeploy-nginx  | 2026-05-06T18:37:15+00:00 | 200 | 0.002s | 172.18.0.3:3000 | GET / HTTP/1.1

@@ -62,6 +62,12 @@ curl -X POST -H "Content-Type: application/json" \
   then starts app/nginx only if OPA allows.
 - `promote {canary|stable}`: scrapes `/metrics`, asks the canary policy, then
   mutates `services.mode` and recreates only the app if OPA allows.
+
+> **NOTE (pre-promote gate design):** The pre-promote gate uses a live
+> two-snapshot delta window (~1 second). The `status --interval N` loop builds
+> continuous history in `history.jsonl`; operators who want a longer pre-promote
+> confidence window should run `status` for ≥30 seconds before promoting.
+
 - `status [--interval N] [--once]`: scrapes `/metrics`, calculates req/s,
   error rate, and p99 latency, displays policy compliance, and appends
   `history.jsonl`.

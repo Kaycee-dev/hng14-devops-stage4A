@@ -1,15 +1,11 @@
 $ ./swiftdeploy promote stable
- Container swiftdeploy-opa Running 
- Container swiftdeploy-app Recreate 
- Container swiftdeploy-app Recreated 
- Container swiftdeploy-app Starting 
- Container swiftdeploy-app Started 
 swiftdeploy promote: target mode=stable
 swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
 rendered nginx.conf <- templates\nginx.conf.tmpl
 rendered docker-compose.yml <- templates\docker-compose.tmpl
 OK: nginx.conf and docker-compose.yml regenerated.
 swiftdeploy policy: starting OPA sidecar
+ Container swiftdeploy-opa Running 
 [PASS] OPA health check passed
   policy: querying canary safety before manifest mutation
 [PASS] policy/canary: canary safety policy passed
@@ -20,18 +16,22 @@ rendered nginx.conf <- templates\nginx.conf.tmpl
 rendered docker-compose.yml <- templates\docker-compose.tmpl
 OK: nginx.conf and docker-compose.yml regenerated.
   step 3/4: recreating the app service only (--no-deps preserves nginx)
+ Container swiftdeploy-app Recreate 
+ Container swiftdeploy-app Recreated 
+ Container swiftdeploy-app Starting 
+ Container swiftdeploy-app Started 
   step 4/4: waiting for /healthz and confirming mode
-  health ok at t=4s
+  health ok at t=3s
 [PASS] stable confirmed: body.mode=stable AND no X-Mode header
 promote: completed; manifest.yaml now records mode=stable
 
 $ curl -i http://127.0.0.1:18080/
 HTTP/1.1 200 OK
 Server: nginx/1.29.8
-Date: Wed, 06 May 2026 17:01:33 GMT
+Date: Wed, 06 May 2026 18:37:15 GMT
 Content-Type: application/json
 Content-Length: 117
 Connection: keep-alive
 X-Deployed-By: swiftdeploy
 
-{"message":"swiftdeploy app online","mode":"stable","version":"1.1.0","timestamp":"2026-05-06T17:01:33.593568+00:00"}
+{"message":"swiftdeploy app online","mode":"stable","version":"1.1.0","timestamp":"2026-05-06T18:37:15.829205+00:00"}

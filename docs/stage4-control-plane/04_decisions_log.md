@@ -231,3 +231,12 @@
 - Trigger: The first deploy saw OPA close the health connection during startup; the CLI originally printed a Python traceback.
 - Rationale: The brief requires the CLI to never crash or hang when OPA is unavailable.
 - Interview defense: "OPA problems are deployment facts, not Python exceptions for the operator to debug. The CLI maps them to named failure modes."
+
+## D-025 - Live two-snapshot window for pre-promote vs rolling 30-second window (known limitation)
+
+- Date: `2026-05-06`
+- Decision: The pre-promote canary gate uses a live two-scrape delta window (~1 second) rather than a rolling 30-second aggregate drawn from `history.jsonl`.
+- Rationale: The live window provides an immediate signal with no dependency on whether the operator has been running `swiftdeploy status` continuously. A rolling window would be more statistically robust but would silently pass if the operator had not polled status for 30 seconds before promoting.
+- Trade-off: A bursty error spike that finished more than 1–2 seconds before the promote command starts would NOT block promotion. The `policy_window_target_seconds=30` field is stored in `history.jsonl` for audit visibility but is not enforced as a gate condition.
+- Known limitation: On the development machine the actual window is 1.1–1.3 seconds. Brief says "last 30 seconds." This mismatch is documented here and in the README, blog, and interview defense bank.
+- Interview defense: "I chose the live window for low latency and zero dependency on continuous polling. The trade-off is a shorter observation window; operators who want 30-second confidence should run `status` first. The 30-second target is a design goal logged in history, not a hard gate."

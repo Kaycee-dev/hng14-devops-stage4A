@@ -25,3 +25,14 @@ interview_questions:
 done_when:
   - article is ready for manual publishing
   - claims match current runtime status and evidence
+remediation_done:
+  - F-001: all Stage 4B files committed (E-018, commit 0ee50e4)
+  - F-006: PYTHONUNBUFFERED=1 added to capture_evidence.sh; proofs re-captured (E-019)
+  - F-004: CPU denial proof added as 12_cpu_policy_denial.txt (E-020)
+  - F-005: nginx access log proof added as 13_nginx_access_log.txt (E-021)
+  - F-007: blog article expanded with 6 required sections (E-022)
+  - F-003: 30-second window trade-off documented in README, blog, defense bank, decisions log D-025 (E-023)
+operator_steps_remaining:
+  - publish blog article on Dev.to
+  - git push to public repo
+  - submit form before 2026-05-08 11:59 WAT

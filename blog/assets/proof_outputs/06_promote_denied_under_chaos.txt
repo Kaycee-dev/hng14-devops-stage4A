@@ -1,7 +1,7 @@
 $ curl -X POST /chaos error rate=1.0
 HTTP/1.1 200 OK
 Server: nginx/1.29.8
-Date: Wed, 06 May 2026 17:01:15 GMT
+Date: Wed, 06 May 2026 18:37:08 GMT
 Content-Type: application/json
 Content-Length: 52
 Connection: keep-alive
@@ -10,24 +10,24 @@ X-Deployed-By: swiftdeploy
 
 {"chaos":{"mode":"error","duration":0.0,"rate":1.0}}
 $ ./swiftdeploy promote stable    # expect canary safety denial
- Container swiftdeploy-opa Running 
-[FAIL] promote blocked by policy; manifest.yaml was not changed
 swiftdeploy promote: target mode=stable
 swiftdeploy init: rendering generated files from C:\Users\Hp\Documents\hng14\devops-stage4\manifest.yaml
 rendered nginx.conf <- templates\nginx.conf.tmpl
 rendered docker-compose.yml <- templates\docker-compose.tmpl
 OK: nginx.conf and docker-compose.yml regenerated.
 swiftdeploy policy: starting OPA sidecar
+ Container swiftdeploy-opa Running 
 [PASS] OPA health check passed
   policy: querying canary safety before manifest mutation
 [FAIL] policy/canary: canary safety policy denied: 1 violation(s)
   - error_rate_too_high: error rate 1.0000 is above allowed 0.0100
+[FAIL] promote blocked by policy; manifest.yaml was not changed
 expected promote denial exit=1
 
 $ curl -X POST /chaos recover
 HTTP/1.1 200 OK
 Server: nginx/1.29.8
-Date: Wed, 06 May 2026 17:01:22 GMT
+Date: Wed, 06 May 2026 18:37:10 GMT
 Content-Type: application/json
 Content-Length: 49
 Connection: keep-alive
