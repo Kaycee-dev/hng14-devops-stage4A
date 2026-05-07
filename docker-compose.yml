@@ -1,6 +1,10 @@
 # docker-compose.yml rendered by swiftdeploy from manifest.yaml.
 # DO NOT hand-edit docker-compose.yml; edit manifest.yaml and rerun `swiftdeploy init`.
 
+# Pinning the project name prevents container-name conflicts when the CLI is
+# run from a different working directory on the same host.
+name: swiftdeploy
+
 services:
   app:
     image: swiftdeploy-stage4b-app:1.0.0

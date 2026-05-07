@@ -1,0 +1,726 @@
+# SwiftDeploy Stage 4B — Interview Prep & Proof-of-Work Pack
+
+---
+
+## Part 1: What You Built (One-Paragraph Pitch)
+
+SwiftDeploy is a manifest-driven deployment CLI written in Bash (entrypoint) and Python (all logic). A single file — `manifest.yaml` — is the authoritative source for every setting. The CLI reads it and generates `nginx.conf` and `docker-compose.yml`; those generated files are never hand-edited. Stage 4B added three new capabilities on top of the Stage 4A foundation: a hand-rolled Prometheus `/metrics` endpoint in the FastAPI app, an OPA policy sidecar that gates every deploy and promote decision, and an append-only audit trail (`history.jsonl` / `audit_report.md`) that records what happened and when. The policy thresholds live in `manifest.yaml` — the Rego files never contain hardcoded numbers.
+
+---
+
+## Part 2: Architecture Map
+
+```
+manifest.yaml  ──────────────────────────────────────────────────────┐
+    │                                                                 │
+    │ ./swiftdeploy deploy/promote/status/audit                       │
+    ▼                                                                 │
+swiftdeploy (bash entrypoint)                                        │
+    │ exec python -m swiftdeploy_lib.cli                              │
+    ▼                                                                 │
+swiftdeploy_lib/                                                      │
+  ├── cli.py         ← subcommand router + orchestration              │
+  ├── config.py      ← manifest parsing, template rendering,          │
+  │                    atomic_write, set_manifest_mode                │
+  ├── policy.py      ← OPA HTTP client, input builders,               │
+  │                    host_stats, wait_opa_health                    │
+  ├── metrics.py     ← Prometheus text parser, histogram_quantile,    │
+  │                    summarize_snapshots                            │
+  └── history.py     ← append_jsonl, read_jsonl                       │
+                                                                      │
+templates/                                                            │
+  ├── nginx.conf.tmpl      (${VARIABLE} placeholders)                 │
+  └── docker-compose.tmpl  (${VARIABLE} placeholders)                 │
+                                                                      │
+GENERATED (never hand-edited):                                        │
+  ├── nginx.conf                                                      │
+  └── docker-compose.yml                                              │
+                                                                      │
+policies/                                                             │
+  ├── infrastructure.rego   (disk, cpu gates)                         │
+  └── canary.rego           (error_rate, p99 gates)                   │
+                                                                      │
+Runtime containers:                                                    │
+  ┌──────────────┐   ┌──────────────┐   ┌───────────────────────┐    │
+  │  nginx:18080 │──▶│  app:3000    │   │  opa:127.0.0.1:18181  │    │
+  │  (ingress)   │   │  (FastAPI)   │   │  (policy sidecar)     │    │
+  └──────────────┘   └──────────────┘   └───────────────────────┘    │
+                           │                        ▲                  │
+                     /metrics endpoint       CLI queries               │
+                           │                    via HTTP               │
+                     AUDIT: history.jsonl ◀──────────────────────────-┘
+                            audit_report.md
+```
+
+---
+
+## Part 3: File-by-File Responsibility
+
+| File | Single responsibility |
+|---|---|
+| `swiftdeploy` | Bash entrypoint: finds Python, sets `SWIFTDEPLOY_ROOT`, delegates to `python -m swiftdeploy_lib.cli` |
+| `swiftdeploy_lib/cli.py` | All 7 subcommands, orchestration, history writes, dashboard printing |
+| `swiftdeploy_lib/config.py` | Manifest parsing, template rendering, `atomic_write`, `set_manifest_mode`, `policy_config`, `observability_config` |
+| `swiftdeploy_lib/policy.py` | OPA HTTP client, `host_stats`, input builders, `wait_opa_health`, `run_compose` |
+| `swiftdeploy_lib/metrics.py` | Prometheus text parser, `histogram_quantile`, `summarize_snapshots` |
+| `swiftdeploy_lib/history.py` | `append_jsonl`, `read_jsonl` |
+| `app/main.py` | FastAPI app, 3 ASGI middleware layers, hand-rolled `/metrics`, `/chaos` endpoint |
+| `policies/infrastructure.rego` | Disk-free and CPU-load deny rules |
+| `policies/canary.rego` | Error-rate and P99-latency deny rules |
+| `manifest.yaml` | Single source of truth for all settings and thresholds |
+| `templates/nginx.conf.tmpl` | Nginx config template with `${VARIABLE}` placeholders |
+| `templates/docker-compose.tmpl` | Compose template; `${MODE}` controls app behaviour |
+| `history.jsonl` | Append-only JSONL audit log (generated by CLI) |
+| `audit_report.md` | Human-readable audit report (generated by `./swiftdeploy audit`) |
+
+---
+
+## Part 4: Complete Data-Flow Walkthroughs
+
+### 4.1 `./swiftdeploy deploy`
+
+```
+cmd_deploy()
+  1. cmd_init()
+       config.render_templates()
+         manifest_context()      ← reads all fields from manifest.yaml
+         Template.safe_substitute(ctx)  ← fills ${VARIABLE} in templates
+         atomic_write(nginx.conf)       ← mkstemp → os.replace (crash-safe)
+         atomic_write(docker-compose.yml)
+
+  2. ensure_opa_started()
+       policy.run_compose("up", "-d", "opa")
+       policy.wait_opa_health(timeout=20)   ← polls GET /health every 1s
+
+  3. gate_infrastructure("pre_deploy", "deploy")
+       policy.infrastructure_input("pre_deploy")
+         host_stats()  → { disk_free_gb, cpu_load }
+         policy_config() → thresholds from manifest.yaml
+       policy.query_opa("infrastructure", input_doc)
+         POST http://127.0.0.1:18181/v1/data/swiftdeploy/infrastructure/decision
+         validates: decision.allowed is bool, decision.reason is str
+       append_policy_event() → appends record to history.jsonl
+
+  4. [if allowed] docker compose up -d app nginx
+  5. poll_health(60)
+       GET http://127.0.0.1:18080/healthz every 1s (through nginx, not direct)
+       returns True on first body.status == "ok"
+```
+
+**Key safety property:** If step 3 returns False, steps 4–5 never run. The containers are never created.
+
+---
+
+### 4.2 `./swiftdeploy promote canary`
+
+```
+cmd_promote(target="canary")
+  1. cmd_init()       ← regenerate configs (ensures fresh state)
+  2. ensure_opa_started()
+  3. gate_canary("pre_promote", "canary", "promote canary")
+       collect_metrics_summary("canary")
+         scrape /metrics → MetricSnapshot (first)
+         5 × healthz probes × 0.2s each  ← generates actual traffic for delta
+         scrape /metrics → MetricSnapshot (last)
+         summarize_snapshots(first, last)
+           req_per_second = delta_total / elapsed
+           error_rate = delta_5xx / delta_total
+           p99 = histogram_quantile(0.99, aggregate_delta_buckets)
+       policy.canary_input("pre_promote", summary)
+       policy.query_opa("canary", input_doc)
+       append_policy_event()
+
+  4. [if allowed]
+     step 1/4: config.set_manifest_mode("canary")
+                 regex mutates services.mode in manifest.yaml
+                 post-edit verification: re-reads manifest, asserts mode == "canary"
+     step 2/4: cmd_init()   ← regenerate with new MODE value
+     step 3/4: docker compose up -d --no-deps --force-recreate app
+     step 4/4: poll_health(60) + confirm_mode("canary")
+                 confirm_mode: checks body.mode == "canary" AND X-Mode header == "canary"
+```
+
+**Key safety property:** `set_manifest_mode` is called ONLY after OPA allows. If OPA denies, manifest.yaml is not touched.
+
+---
+
+### 4.3 `./swiftdeploy status --once`
+
+```
+status_once(previous=None)
+  scrape /metrics → MetricSnapshot (current)
+  summarize_snapshots(previous, current)
+    → {mode, chaos, req/s, error_rate, p99, window_seconds, uptime}
+
+  query_opa("infrastructure", infrastructure_input("status"))
+  query_opa("canary", canary_input("status", summary))
+
+  record = {timestamp, time, event="status_scrape", action="status",
+            metrics=summary, policies=[...]}
+  history.append_jsonl(history.jsonl, record)
+
+  print dashboard
+```
+
+Status uses `"status"` as the question string. Both Rego files explicitly whitelist it: `supported_question if input.question == "status"`. Without this, OPA would return an `unsupported_question` violation on every status call.
+
+---
+
+### 4.4 Histogram P99 Calculation
+
+```
+/metrics returns cumulative buckets per (method, path, le):
+  http_request_duration_seconds_bucket{...,le="0.005"} 2
+  http_request_duration_seconds_bucket{...,le="0.01"}  2
+  ...
+  http_request_duration_seconds_bucket{...,le="+Inf"}  2
+
+summarize_snapshots():
+  takes the DELTA of each bucket between first and last snapshots
+  aggregates across all (method, path) pairs → single dict {le: count}
+
+histogram_quantile(0.99, buckets):
+  total = +Inf count
+  target = 0.99 * total
+  iterate sorted buckets (ascending le):
+    when cumulative count >= target:
+      linear interpolate within that bucket
+      return prev_bound + (upper - prev_bound) * fraction
+```
+
+For the proof outputs: all requests were < 5ms so every bucket from `le=0.005` upward is equal to the `+Inf` count. The p99 interpolation resolves to 0.005s (the first bucket boundary).
+
+---
+
+## Part 5: OPA Deep Dive
+
+### 5.1 Why OPA instead of Python if-statements
+
+The problem with hardcoded Python thresholds:
+1. Threshold lives in source code — changing it means editing Python, not config.
+2. No audit trail of what threshold was active at what time.
+3. Not independently testable without running the whole CLI.
+4. Anyone forking the tool needs their own copy with their own thresholds.
+
+The OPA model:
+- CLI gathers facts (`host_stats()`, metrics summary).
+- CLI builds a JSON input document with both facts AND thresholds (from manifest.yaml).
+- OPA evaluates Rego rules against the document.
+- OPA returns a structured decision: `{allowed, reason, violations, observed}`.
+- CLI enforces the decision. CLI never inspects thresholds itself.
+
+Changing a threshold = one-line edit in `manifest.yaml`. The `.rego` files never change.
+
+### 5.2 The OPA request/response cycle
+
+**Request body** (sent to `/v1/data/swiftdeploy/infrastructure/decision`):
+```json
+{
+  "input": {
+    "question": "pre_deploy",
+    "host": {
+      "disk_free_gb": 121.359,
+      "cpu_load": 0.0
+    },
+    "thresholds": {
+      "min_disk_free_gb": 10.0,
+      "max_cpu_load": 2.0
+    }
+  }
+}
+```
+
+**Response body** (from OPA, nested under `.result`):
+```json
+{
+  "result": {
+    "domain": "infrastructure",
+    "question": "pre_deploy",
+    "allowed": true,
+    "reason": "infrastructure policy passed",
+    "violations": [],
+    "observed": {"disk_free_gb": 121.359, "cpu_load": 0.0}
+  }
+}
+```
+
+`query_opa()` validates the response has: `result` key, `result` is a dict, `result.allowed` is a bool, `result.reason` is truthy. If any of these fail, it returns `PolicyResult(ok=False, mode="opa_malformed_response")`.
+
+### 5.3 The five failure modes of query_opa
+
+| mode | cause |
+|---|---|
+| `opa_timeout` | `socket.timeout` — OPA didn't respond within 5s |
+| `opa_unavailable` | `urllib.error.URLError` — OPA container not running |
+| `opa_policy_error` | `urllib.error.HTTPError` — OPA returned HTTP 4xx/5xx |
+| `opa_malformed_response` | Response body is not JSON, or missing `allowed`/`reason` |
+| `deny` | OPA responded normally but `allowed == false` |
+
+A non-`deny` failure is a **fail-closed** behaviour: if OPA can't be reached, the operation is blocked.
+
+### 5.4 OPA isolation
+
+The OPA port binding is `127.0.0.1:18181:8181` — the colon-separated triple is `host_ip:host_port:container_port`. Binding to `127.0.0.1` means OPA is only reachable from the Docker host's loopback. External machines cannot hit it.
+
+Inside the Docker network: nginx has exactly one `location` block — `proxy_pass http://app_backend`. There is no OPA upstream in `nginx.conf`. A client hitting port 18080 through nginx can reach the app and nothing else. Even from inside the network, the nginx container has no route to OPA.
+
+The `policies/` directory is mounted into the OPA container as `:ro` (read-only). The CLI itself cannot modify the Rego files at runtime.
+
+### 5.5 Rego structure explained line-by-line
+
+```rego
+package swiftdeploy.infrastructure
+
+# OPA URL path maps directly to package: /v1/data/swiftdeploy/infrastructure/decision
+# 'decision' is the name of the rule being queried
+
+supported_question if input.question == "pre_deploy"
+supported_question if input.question == "status"
+# These are boolean rules. If neither matches, unsupported_question deny fires.
+
+violations := [violation | violation := deny[_]]
+# Comprehension: collect every member of the deny set into a list.
+# deny is a set rule (deny contains {...} if ...).
+
+reason := "infrastructure policy passed" if { count(violations) == 0 }
+reason := sprintf("infrastructure policy denied: %v violation(s)", ...) if { count(violations) > 0 }
+# Rego allows two rules with the same name if their conditions are mutually exclusive.
+
+decision := { "allowed": count(violations) == 0, ... }
+# This is the object the CLI reads at /v1/data/swiftdeploy/infrastructure/decision
+```
+
+---
+
+## Part 6: Metrics Deep Dive
+
+### 6.1 Hand-rolled Prometheus format
+
+Why no Prometheus client library? The app has one Python dependency: FastAPI (and its transitive deps). Adding `prometheus_client` would be fine but adding dependencies was a deliberate choice to avoid it for this project. The format is simple enough to implement correctly by hand for the metrics needed.
+
+The app exports:
+- `http_requests_total` (counter) — labeled by method, path, status_code
+- `http_request_duration_seconds` (histogram) — labeled by method, path; 14 le buckets + +Inf
+- `app_uptime_seconds` (gauge)
+- `app_mode` (gauge) — 0=stable, 1=canary
+- `chaos_active` (gauge) — 0=none, 1=slow, 2=error
+
+### 6.2 Why `/metrics` is exempt from chaos middleware
+
+The ASGI middleware stack (execution order, outermost first):
+
+```
+Request enters
+    │
+    ▼
+metrics_middleware   ← records every request's status code and duration
+    │
+    ▼
+mode_middleware      ← stamps X-Mode: canary header
+    │
+    ▼
+chaos_middleware     ← may return 500 or sleep before calling next
+    │
+    ▼
+route handler
+```
+
+Registration order in code is the reverse (FastAPI stacks middleware LIFO). The code registers `chaos_middleware` first, `mode_middleware` second, `metrics_middleware` third — so `metrics_middleware` is the outermost wrapper.
+
+If `/metrics` were NOT exempt from `chaos_middleware`, then with `error rate=1.0`, every scrape of `/metrics` would return 500. The CLI's `collect_metrics_summary()` would throw an exception. The policy loop would go blind. The status dashboard would crash. The `unsupported_question` guard in OPA would never even be reached. The exemption is the only reason the status loop can observe a 100% error rate rather than participating in it.
+
+### 6.3 Histogram bucket implementation detail
+
+`observe_http_request()` increments buckets cumulatively:
+```python
+for index, bucket in enumerate(METRIC_BUCKETS):
+    if duration <= bucket:
+        bucket_counts[index] += 1
+```
+
+Note: this is NOT cumulative in the Prometheus sense yet — it only increments the first bucket that fits. The Prometheus cumulative format (where each bucket includes all requests at or below its `le`) is assembled at export time in `prometheus_metrics()` by iterating the bucket counts from smallest to largest and keeping a running cumulative sum... 
+
+Actually looking at the code more carefully:
+
+```python
+for bucket, count in zip(METRIC_BUCKETS, bucket_counts):
+    lines.append(f'..._bucket{{...,le="{bucket:g}"}} {count}')
+```
+
+The `bucket_counts` list is indexed by position, not cumulative. The export loop just iterates them in order. This means the exported buckets are NOT cumulative — they represent requests in that specific bucket range only. However, the parser in `metrics.py` calculates the quantile from these values directly and the proof outputs show correct results (p99=0.005s for all-fast requests), so in practice this works because all requests fall in the smallest bucket, making the "not cumulative" vs "cumulative" distinction irrelevant for the observed data.
+
+**Interview note:** If asked whether the histogram is standard Prometheus format — it is not fully standard. Standard Prometheus requires cumulative buckets. The exported format from this app has non-cumulative buckets. The CLI's `histogram_quantile()` function was written to match the actual exported format (it uses the +Inf count as `total` and the bucket values as incremental counts). This is an internal consistency — the app and the parser agree. If you plugged a real Prometheus server into this `/metrics` endpoint, the histograms would appear incorrect in Grafana.
+
+### 6.4 The two-scrape window
+
+`collect_metrics_summary()`:
+```python
+first = metrics.scrape_metrics(nginx_port)
+for _ in range(5):
+    urllib.request.urlopen(f"http://127.0.0.1:{nginx_port}/healthz", timeout=3).read()
+    time.sleep(0.2)
+last = metrics.scrape_metrics(nginx_port)
+```
+
+The 5 healthz probes serve two purposes:
+1. Generate actual HTTP traffic so the delta between snapshots has real data (not zero).
+2. Create the ~1 second elapsed window needed for a meaningful req/s calculation.
+
+Actual elapsed: 5 × 0.2s = 1.0s sleep + request latency + two scrape times ≈ 1.1–1.3s.
+
+The manifest has `window_seconds: 30` — this is the INTENDED window. The implementation doesn't actually collect 30 seconds of data. The CLI passes `window_seconds` in the canary input to OPA, but the actual elapsed window is ~1.1s. This is documented as design trade-off D-025 and explained in the blog post's Lessons Learned section.
+
+---
+
+## Part 7: ASGI Middleware Order — The Trick Question
+
+**Q: If chaos_middleware is registered first, why does it execute last?**
+
+FastAPI (Starlette) stacks middleware in LIFO order. The last middleware registered wraps all previous ones — it is the outermost layer. Code registration:
+1. `@app.middleware("http") chaos_middleware` — registered first, executes innermost
+2. `@app.middleware("http") mode_middleware` — registered second, middle layer
+3. `@app.middleware("http") metrics_middleware` — registered third, outermost layer
+
+Execution flow for a request:
+```
+metrics_middleware (enters) →
+  mode_middleware (enters) →
+    chaos_middleware (enters) →
+      route handler
+    chaos_middleware (exits or short-circuits 500)
+  mode_middleware (exits, stamps X-Mode if canary)
+metrics_middleware (exits, records status_code + duration)
+```
+
+This ordering matters: `metrics_middleware` sees the final status code including chaos-injected 500s. If the ordering were reversed, metrics would not count chaos errors.
+
+---
+
+## Part 8: Canary Lifecycle — Full State Machine
+
+```
+State: stable (initial)
+
+./swiftdeploy deploy
+  → OPA/infrastructure gate: PASS
+  → containers up (app in stable MODE, no X-Mode header)
+  → State: running/stable
+
+./swiftdeploy promote canary
+  → collect_metrics_summary (two scrapes ~1.1s)
+  → OPA/canary gate: PASS (error_rate 0.00%)
+  → set_manifest_mode("canary") → manifest.yaml services.mode = canary
+  → re-render docker-compose.yml with MODE=canary
+  → docker compose up --no-deps --force-recreate app (nginx stays up, no traffic drop)
+  → confirm_mode: body.mode=canary AND X-Mode: canary
+  → State: running/canary
+
+POST /chaos {"mode":"error","rate":1.0}
+  → chaos_state = {mode:"error", rate:1.0}
+  → State: running/canary/chaos-error
+
+./swiftdeploy promote stable (attempt)
+  → collect_metrics_summary: error_rate=100%
+  → OPA/canary gate: DENY (error_rate_too_high)
+  → manifest.yaml NOT changed
+  → State: still running/canary/chaos-error (no state change)
+
+POST /chaos {"mode":"recover"}
+  → chaos_state = {mode:None, rate:0.0}
+  → State: running/canary/no-chaos
+
+./swiftdeploy promote stable
+  → collect_metrics_summary: error_rate=0.00%
+  → OPA/canary gate: PASS
+  → set_manifest_mode("stable")
+  → re-render, recreate app, confirm stable
+  → State: running/stable
+```
+
+---
+
+## Part 9: Security Decisions
+
+### 9.1 Docker hardening in docker-compose.yml
+
+**App container:**
+- No `ports:` mapping — only reachable through nginx on the internal network
+- `cap_drop: [ALL]` — drops all Linux capabilities
+- `security_opt: [no-new-privileges:true]` — process cannot escalate
+- `user: "10001:10001"` — non-root UID/GID
+
+**OPA container:**
+- `ports: ["127.0.0.1:18181:8181"]` — loopback-only binding
+- `read_only: true` — container filesystem is read-only
+- `cap_drop: [ALL]`
+- `security_opt: [no-new-privileges:true]`
+- `volumes: ./policies:/policies:ro` — Rego files mounted read-only
+
+**Nginx container:**
+- `cap_drop: [ALL]` then `cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]`
+- Nginx needs these four capabilities to bind privileged ports and drop root after startup
+
+### 9.2 Why OPA can't be reached through nginx
+
+The nginx template has one upstream and one location block:
+```nginx
+upstream app_backend { server app:3000; }
+location / { proxy_pass http://app_backend; }
+```
+
+There is no `upstream opa_backend` and no second `location` block. The `opa` container is on the same Docker network as nginx, but nginx has no configuration pointing to it. A client that can reach port 18080 can only reach the FastAPI app.
+
+### 9.3 Policies directory: read-only mount
+
+```yaml
+volumes:
+  - ./policies:/policies:ro
+```
+
+The `:ro` flag means the OPA container cannot write to the mounted directory. Even if OPA were compromised, it could not modify the Rego files to change policy decisions. The policies are validated at CLI startup by `ensure_policy_source()` before OPA is started.
+
+---
+
+## Part 10: config.py — Technical Details
+
+### 10.1 safe_substitute vs substitute
+
+`string.Template.substitute(mapping)` raises `KeyError` on any `${TOKEN}` not in the mapping.
+`string.Template.safe_substitute(mapping)` leaves unrecognised tokens unchanged.
+
+Nginx config files use variables like `$request_time`, `$remote_addr`, `$host`. When these appear in the template (written as `${request_time}` because Template uses that syntax), `substitute` would raise `KeyError: 'request_time'`. `safe_substitute` leaves them as `${request_time}` in the output, which is exactly what nginx expects.
+
+### 10.2 atomic_write
+
+```python
+def atomic_write(target: Path, text: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".swiftdeploy.", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as out:
+            out.write(text)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+```
+
+Key points:
+- `mkstemp` creates the temp file in the SAME directory as the target. `os.replace` is atomic on POSIX only when source and destination are on the same filesystem. Same directory guarantees this.
+- `os.replace` is POSIX-atomic: on POSIX it calls `rename(2)` which is guaranteed atomic at the filesystem level. On Windows it is NOT atomic (it can fail if target is open), but it is still safer than a direct write because corruption is impossible — you either get the old file or the new file.
+- The `except` block unlinks the temp file if anything fails. Without this, a failed mid-write leaves `.swiftdeploy.*` files around.
+
+### 10.3 set_manifest_mode — Regex surgery
+
+```python
+pattern = re.compile(r"(?m)^services:\n(?P<body>(?:[ \t]+.*(?:\n|$))*)")
+match = pattern.search(text)
+body = match.group("body")
+new_body, count = re.subn(
+    r"(?m)^([ \t]+mode:[ \t]+)\S+",
+    lambda m: m.group(1) + target,
+    body, count=1,
+)
+```
+
+This scopes the mode substitution to the `services:` block only. If another YAML section also had a `mode:` key, this regex would not touch it. The `count=1` parameter prevents double-substitution if somehow `mode:` appears twice in the services block. After writing, the function re-reads and verifies the mode changed correctly — this is a post-edit assertion, not just optimism.
+
+---
+
+## Part 11: Windows Portability
+
+`os.getloadavg()` is not available on Windows. The call raises `AttributeError`. The fallback:
+
+```python
+try:
+    cpu_load = float(os.getloadavg()[0])
+except (AttributeError, OSError):
+    cpu_source = "unavailable_default"
+    cpu_load = 0.0
+```
+
+On Windows, `cpu_load` is always `0.0`. This means the `cpu_load_too_high` rule in `infrastructure.rego` can never fire under real conditions on Windows (because `0.0 > threshold` is false for any positive threshold).
+
+**Proof workaround:** Set `max_cpu_load: -1.0` in `manifest.yaml`. The rule `0.0 > -1.0` is `true`, so the CPU deny fires. Proof file `12_cpu_policy_denial.txt` demonstrates this.
+
+On Linux/macOS, `os.getloadavg()[0]` returns the 1-minute load average from `/proc/loadavg`. A threshold of `2.0` means "don't deploy if the 1-minute average is above 2 load units."
+
+---
+
+## Part 12: The validate Command — 5 Checks Explained
+
+```
+./swiftdeploy validate
+```
+
+1. **manifest.yaml exists and is valid YAML** — `yaml.safe_load()` must not throw.
+2. **All required manifest fields are present and non-empty** — checks `services.image`, `services.port`, `nginx.image`, `nginx.port`, `network.name`, `network.driver_type`.
+3. **Docker image is present locally** — runs `docker image inspect <image>`. This catches the "forgot to docker build" mistake before anything starts.
+4. **Nginx port is free on the host** — tries to bind the port with a raw socket. Catches "already in use" before compose would fail with a cryptic error.
+5. **nginx.conf passes `nginx -t`** — spins up an ephemeral `nginx:latest` container with `--entrypoint nginx` and runs `nginx -t -q` against the rendered config. This validates syntax before the actual nginx container starts.
+
+---
+
+## Part 13: Audit Trail — How It Works
+
+Every CLI operation that touches policy appends a JSONL record to `history.jsonl`:
+
+```json
+{
+  "timestamp": 1746561430.281,
+  "time": "2026-05-06T18:37:10.281061+00:00",
+  "event": "status_scrape",
+  "action": "status",
+  "metrics": {
+    "mode": "canary", "chaos": "error",
+    "req_per_second": 4.469, "error_rate": 1.0,
+    "p99_latency_seconds": 0.005, "window_seconds": 1.1
+  },
+  "policies": [
+    {"domain": "infrastructure", "ok": true, "mode": "allow", ...},
+    {"domain": "canary", "ok": false, "mode": "deny",
+     "decision": {"violations": [{"id": "error_rate_too_high", ...}]}}
+  ]
+}
+```
+
+`./swiftdeploy audit` reads the entire JSONL file and generates three sections in `audit_report.md`:
+1. **Timeline** — one table row per record with mode, chaos, req/s, error_rate, p99.
+2. **Mode and Chaos Changes** — lists only the records where mode or chaos changed (diff-style).
+3. **Violations** — lists all policy decisions where `ok == false`, with violation IDs.
+
+The audit report is NOT a real-time source — it is generated on demand from the append-only log. The log is the authoritative record.
+
+---
+
+## Part 14: Q&A Bank
+
+### Architecture & Design
+
+**Q: Why is `manifest.yaml` the single source of truth instead of environment variables or a `.env` file?**
+
+A: Environment variables are ephemeral — there's no version history and no single file to diff. A `.env` file is unstructured; you can't express nested settings like `policy.infrastructure.min_disk_free_gb` cleanly. `manifest.yaml` is structured, versionable in git, and can express both flat settings (ports, images) and nested policy thresholds in the same file. The CLI reads it once and fans out to all generated artifacts.
+
+**Q: What happens if someone hand-edits `docker-compose.yml`?**
+
+A: The next `./swiftdeploy init` or `./swiftdeploy deploy` overwrites it with a freshly rendered copy from `manifest.yaml`. The `DO NOT HAND-EDIT` header in the generated file is advisory; the CLI will always win. This is intentional — it's the idempotency guarantee the grader tests with `teardown --clean` + `init`.
+
+**Q: How does `--no-deps --force-recreate` in promote preserve nginx uptime?**
+
+A: `docker compose up -d --no-deps --force-recreate app` recreates ONLY the `app` service. The `--no-deps` flag tells compose to ignore any service dependencies of `app`. Without `--no-deps`, compose would also recreate nginx (because nginx depends on app via `depends_on`). With `--no-deps`, nginx stays running while only the app container is cycled. The promote is therefore a rolling restart at the container level, not a full stack restart.
+
+**Q: Why does `confirm_mode` check BOTH the JSON body AND the X-Mode header?**
+
+A: Checking only the JSON body would only tell you the app's `MODE` env var was set correctly. Checking only the header would tell you nginx is forwarding from the new container. Checking both is an end-to-end confirmation: the env var was applied AND nginx is routing to the new container AND the response pipeline is working. If either check fails, the promote command returns exit code 1.
+
+---
+
+### OPA & Policy
+
+**Q: What happens if the OPA container is down when you run `deploy`?**
+
+A: `ensure_opa_started()` first tries `docker compose up -d opa`. If compose fails (e.g., image not available), it returns False and deploy exits with code 1. If compose succeeds but OPA doesn't become healthy within 20 seconds (the `wait_opa_health` timeout), it returns False and deploy exits with code 1. The infrastructure policy check (`gate_infrastructure`) is never reached. This is fail-closed: no OPA = no deploy.
+
+**Q: Can you explain what `violations := [violation | violation := deny[_]]` means in Rego?**
+
+A: This is a Rego list comprehension. `deny` is a set rule — each `deny contains {...} if {...}` clause can add one object to the set if its condition is true. `deny[_]` iterates every member of the set. The comprehension collects all members into a list called `violations`. The list is then counted to determine `allowed` and the `reason` string. Using a set ensures each violation ID appears only once even if multiple conditions could produce the same entry.
+
+**Q: Why does the Rego policy have an `unsupported_question` deny rule?**
+
+A: Without it, if the CLI called OPA with an unrecognised question string (e.g., a typo), OPA would evaluate `supported_question` as false, skip the `disk_free_too_low` and `cpu_load_too_high` rules (because they guard on `supported_question`), find zero violations, and return `allowed: true`. A typo in a question string would silently pass every check. The `unsupported_question` deny rule converts this silent pass into an explicit error, which the CLI surfaces as a failure.
+
+**Q: Why don't the Rego files contain hardcoded threshold numbers?**
+
+A: The CLI passes thresholds as part of the input document (`input.thresholds.min_disk_free_gb`). This means the same Rego file can enforce different thresholds for different environments just by changing `manifest.yaml`. The Rego file is the LOGIC — "deny if observed value exceeds threshold." The manifest.yaml is the CONFIGURATION — "what the threshold actually is." These concerns are separated.
+
+---
+
+### Metrics & Chaos
+
+**Q: Why doesn't chaos affect `/metrics` or `/chaos` itself?**
+
+A: `/metrics` is exempt so the CLI can observe the chaos rather than participate in it. If `/metrics` returned 500 during error chaos, `scrape_metrics()` would throw an exception, `collect_metrics_summary()` would fail, and the policy gate would crash before OPA could evaluate anything. `/chaos` is exempt so an operator can call `POST /chaos {"mode":"recover"}` to stop the chaos even at 100% error rate. Without the exemption, the recovery call itself would be chaos-injected.
+
+**Q: How does the middleware order work? Isn't `metrics_middleware` registered last?**
+
+A: Yes — Starlette/FastAPI middleware is LIFO (last registered = outermost wrapper). `metrics_middleware` is registered third, so it executes first on the way in and last on the way out. This means `metrics_middleware` sees the final `response.status_code` AFTER `chaos_middleware` may have short-circuited with a 500. So chaos-injected errors ARE counted in the metrics. This is the correct behaviour: if 100% of requests are failing, `error_rate` should read 100%.
+
+**Q: Your proof shows `window=0.0s` on the first `status --once` call. Why?**
+
+A: On the first call, `status_once` receives `previous=None`. `summarize_snapshots(None, current)` sets `elapsed = 0.0` because there is no previous timestamp to subtract. With `elapsed=0`, `req_per_second = total_requests` (the raw counter value, not a rate), and `window_seconds = 0.0`. This is documented behaviour — the first call is a snapshot, not a delta. The second call (or running `status` without `--once`) uses the previous snapshot as the baseline and produces a meaningful window.
+
+**Q: How does `chaos_state` persist between requests?**
+
+A: It's an in-memory Python dict at module scope in `app/main.py`. It persists for the lifetime of the Uvicorn process. It is NOT persisted to disk — a container restart resets chaos to `{mode: None, rate: 0.0}`. This is intentional for a chaos tool: restarting the container is a recovery mechanism.
+
+---
+
+### Template Generation & Idempotency
+
+**Q: How do you prove the generated files are byte-identical after teardown + init?**
+
+A: `render_templates()` is purely deterministic — same `manifest.yaml` input always produces the same `Template.safe_substitute()` output. There are no timestamps, random values, or external state in the template context. The `atomic_write` helper writes with `newline="\n"` (LF, not CRLF) to ensure cross-platform consistency. The grader can run `sha256sum nginx.conf docker-compose.yml` before teardown, then again after init, and the hashes will match.
+
+**Q: What does `ensure_policy_source()` do and why is it called inside `render_templates()`?**
+
+A: It checks that `policies/` exists and contains at least one `.rego` file. It is called in `render_templates()` (which runs during `init`) rather than only at deploy time so that a missing `policies/` directory is caught as early as possible — even before OPA starts. The error message is explicit: `policies/ must contain at least one .rego file`.
+
+---
+
+### Known Trade-offs
+
+**Q: The brief asks for a 30-second error rate window. Yours is ~1.1 seconds. Why?**
+
+A: The two-scrape approach gives an immediate signal: if the canary is broken right now, the next promote is blocked within ~1.1 seconds of starting. A true 30-second rolling window would require the CLI to either block for 30 seconds or read from a pre-warmed history. The trade-off is that a brief error spike that cleared 10 seconds ago would not block promotion. For a production system you'd run `./swiftdeploy status` for 30+ seconds before promoting, warming the history. The implementation demonstrates the policy gate mechanism; the window duration is a configurable parameter (set in `manifest.yaml` as `window_seconds: 30`) that the implementation doesn't yet fully honour.
+
+**Q: Why does the nginx access log proof mostly show 502s?**
+
+A: The `13_nginx_access_log.txt` proof captures logs immediately after `docker compose up`. During the startup window, nginx starts before the app is fully ready (despite `depends_on: service_healthy`, there's a timing gap between "healthy" and "accepting all requests stably"). The 502 errors are from that startup window. The format of the log lines is correct and demonstrates the configured log format.
+
+**Q: The Dockerfile CMD hardcodes port 3000. Doesn't that conflict with APP_PORT?**
+
+A: Yes — `CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]` ignores `APP_PORT`. `app/main.py` reads `APP_PORT = int(os.getenv("APP_PORT", "3000"))` but that value is only used in one place (the module-level variable), not in the uvicorn startup command in the Dockerfile. The manifest sets `services.port: 3000` so in practice they match. If the port were changed in the manifest, the Dockerfile CMD would need updating manually. This is a known inconsistency (F-011 in audit_review.md) — low risk for this project, real tech debt in production.
+
+---
+
+## Part 15: Proof-of-Work Evidence Map
+
+| Grading criterion | Proof file(s) | What it shows |
+|---|---|---|
+| Template generation | `01_validate.txt`, `10_generated_configs.txt` | `swiftdeploy init` renders nginx.conf and docker-compose.yml from manifest.yaml |
+| Validate command | `01_validate.txt` | All 5 checks pass; nginx -t validates rendered config |
+| Pre-deploy policy gate | `02_predeploy_policy_denial.txt` | Infrastructure policy denies deploy with `min_disk_free_gb: 1000000` |
+| Deploy lifecycle | `03_deploy_and_metrics.txt` | Containers start, health check passes, /metrics and /healthz respond |
+| Status dashboard | `04_status_history.txt` | Live metrics, mode, chaos state, policy compliance all printed |
+| Promote canary | `05_promote_canary.txt` | Policy passes, manifest mutated, app recreated, mode confirmed |
+| Promote denial under chaos | `06_promote_denied_under_chaos.txt` | 100% error chaos → canary policy denies promote stable |
+| Promote stable | `07_promote_stable.txt` | After chaos recovered, promote stable succeeds |
+| OPA isolation | `08_opa_no_leakage.txt` | OPA port not reachable through nginx (app 404, not OPA response) |
+| Audit report | `09_audit_report.txt` | Timeline, mode changes, two violations documented |
+| Generated config content | `10_generated_configs.txt` | Actual nginx.conf and docker-compose.yml contents |
+| Teardown + regeneration | `11_teardown_and_regen.txt` | teardown --clean removes generated files; init restores them |
+| CPU policy denial | `12_cpu_policy_denial.txt` | `max_cpu_load: -1.0` triggers cpu_load_too_high on Windows |
+| Nginx access log format | `13_nginx_access_log.txt` | Log format shows configured fields; 502s from startup window |
+
+---
+
+## Part 16: Five-Minute Verbal Summary
+
+If an interviewer says "walk me through what you built in 5 minutes":
+
+> Stage 4A: I built a CLI called `swiftdeploy`. One file — `manifest.yaml` — owns every setting. The CLI reads it and generates `nginx.conf` and `docker-compose.yml` using Python's string Template. The key detail is `safe_substitute` instead of `substitute` — nginx config has variables like `${request_time}` that would crash `substitute`. Generated files are written atomically using `mkstemp` + `os.replace` so a crash mid-write can't corrupt your config.
+>
+> Stage 4B: I realized I was flying blind once the stack was running. I added three things.
+>
+> First, a Prometheus `/metrics` endpoint in the FastAPI app — hand-rolled, no library. It exports counters and histograms per endpoint. `/metrics` is deliberately exempt from chaos middleware so the CLI can always observe what's happening.
+>
+> Second, an OPA sidecar. The CLI never makes threshold decisions itself. Before a deploy, it sends disk and CPU facts to OPA. Before a promote, it takes two metrics scrapes ~1 second apart, calculates error rate and P99 latency, sends those to OPA. OPA evaluates Rego rules where all thresholds come from `manifest.yaml`, not from hardcoded numbers in the Rego file. If OPA says no, the operation is blocked before the manifest is touched.
+>
+> Third, every policy check appends a JSONL record to `history.jsonl`. `./swiftdeploy audit` turns that into a Markdown report with a timeline, mode-change log, and a violations section. The audit trail is append-only and generated from a log, not hand-written.
+>
+> The chaos proof: I promoted to canary, injected 100% error rate, watched the status dashboard show red on the canary policy, tried to promote stable — OPA blocked it, manifest unchanged. Recovered from chaos, promoted stable — succeeded.
+
+---

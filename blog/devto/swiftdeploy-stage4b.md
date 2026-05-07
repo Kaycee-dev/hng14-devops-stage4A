@@ -2,6 +2,7 @@
 title: "I Built a CLI That Writes Its Own Docker Config — Then Taught It to Say No"
 published: false
 tags: devops, opa, prometheus, docker
+cover_image: ./images/cover.png
 ---
 
 Every time I set up a stack from scratch I'd end up touching at least four files: `docker-compose.yml`, `nginx.conf`, a `.env` file, maybe a `Makefile`. Change the port in one place and forget to update the others and something silently breaks. I wanted to fix that. Stage 4A was the fix. Stage 4B was the moment I realised the fix was incomplete.
@@ -47,6 +48,8 @@ I used `safe_substitute` instead of `substitute` because `substitute` raises an 
 
 The `atomic_write` helper writes to a temp file first, then does `os.replace` into the final path. The reason: if something crashes mid-write you end up with a corrupt config. `os.replace` is atomic on every OS Python runs on, so you either get the new file or the old one, never half of each.
 
+![manifest.yaml feeds swiftdeploy init which renders nginx.conf and docker-compose.yml — generated files carry DO NOT HAND-EDIT headers](./images/pipeline.png)
+
 ### The app
 
 The API service is a FastAPI app with three endpoints: `GET /` returns the mode and version, `GET /healthz` returns uptime, and `POST /chaos` lets you inject failure (more on that later). The `MODE` environment variable controls whether the app is in stable or canary mode — same image, different behaviour. In canary mode every response carries an `X-Mode: canary` header.
@@ -70,6 +73,8 @@ Stage 4B adds three things:
 - **Eyes** — a `/metrics` endpoint in Prometheus text format so I can see what is happening
 - **Brain** — an OPA sidecar that makes every allow/deny decision so the CLI never has to
 - **Memory** — `history.jsonl` and `audit_report.md` so there is a record of what happened and when
+
+![SwiftDeploy Stage 4B system architecture — CLI, OPA sidecar, Nginx ingress, FastAPI app, metrics and audit pipeline](./images/architecture.png)
 
 ---
 
@@ -126,6 +131,8 @@ if disk_free < 10:
 The problem with this is that the threshold is a magic number in Python code. If you want to change it you edit the Python. If someone else has a different threshold they fork the script. There is no audit trail of what value was used when. And the policy is not testable in isolation.
 
 OPA solves this differently. The CLI collects facts and sends them to OPA as a JSON document. OPA evaluates Rego rules against the document and returns a decision. The CLI enforces whatever OPA says. The CLI never checks a threshold itself.
+
+![OPA policy gate — input document with host stats and manifest thresholds flows in, structured decision with violations flows out](./images/policy_gate.png)
 
 The infrastructure policy lives in `policies/infrastructure.rego`:
 
@@ -244,6 +251,8 @@ Both policies show green. P99 is 5 ms. Now watch what happens after chaos.
 ## Chaos mode and what the dashboard showed
 
 After promoting to canary I injected a 100% error rate:
+
+![Canary container under 100% error chaos — OPA robotic arm blocks the promote stable arrow before manifest.yaml is touched](./images/chaos_blocked.png)
 
 ```
 $ curl -s -X POST -H "Content-Type: application/json" \

@@ -181,11 +181,19 @@ def port_is_free(port: int) -> bool:
 
 def ensure_opa_started() -> bool:
     log("swiftdeploy policy: starting OPA sidecar")
-    try:
-        policy.run_compose("up", "-d", "opa")
-    except subprocess.CalledProcessError as exc:
-        fail(f"opa_unavailable: docker compose could not start OPA (exit {exc.returncode})")
-        return False
+    result = policy.run_compose("up", "-d", "opa", check=False)
+    if result.returncode != 0:
+        # A stale container from a previous run (possibly under a different
+        # Compose project) may be holding the container name. Stop and remove
+        # it, then retry once.
+        log("  OPA start failed; removing stale service container and retrying")
+        policy.run_compose("rm", "-f", "-s", "opa", check=False)
+        try:
+            policy.run_compose("up", "-d", "opa")
+        except subprocess.CalledProcessError as exc:
+            fail(f"opa_unavailable: docker compose could not start OPA (exit {exc.returncode})")
+            fail("  if a stale container persists, run: docker rm -f swiftdeploy-opa")
+            return False
     health = policy.wait_opa_health()
     if not health.ok:
         fail(f"{health.mode}: {health.message}")

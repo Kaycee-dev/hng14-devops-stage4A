@@ -34,3 +34,6 @@ desktop.ini
 # Local test scratch the proof bundle does not need.
 /tmp_*
 *.log.local
+
+# Microsoft Office lock files (created while a document is open).
+~$*
